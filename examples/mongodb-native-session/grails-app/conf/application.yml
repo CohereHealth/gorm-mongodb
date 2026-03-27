@@ -1,0 +1,15 @@
+grails:
+    profile: web
+    codegen:
+        defaultPackage: example
+    gorm:
+        reactor:
+            events: false
+    mongodb:
+        url: mongodb://localhost:27017/mongodb_native_session_test?replicaSet=myReplicaSet
+
+logging:
+    level:
+        example: DEBUG
+        org.grails.datastore.mapping.mongo: DEBUG
+        org.grails.datastore.gorm.mongo: DEBUG

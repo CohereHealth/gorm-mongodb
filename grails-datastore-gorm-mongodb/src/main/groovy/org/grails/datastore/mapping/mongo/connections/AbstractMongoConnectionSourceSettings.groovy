@@ -56,6 +56,11 @@ abstract class AbstractMongoConnectionSourceSettings extends ConnectionSourceSet
     String engine = MongoConstants.CODEC_ENGINE
 
     /**
+     * Whether to enable native MongoDB transactions (requires MongoDB 4.0+ and a replica set)
+     */
+    boolean nativeTransactionsEnabled
+
+    /**
      * Whether to use stateless mode by default
      */
     boolean stateless = false

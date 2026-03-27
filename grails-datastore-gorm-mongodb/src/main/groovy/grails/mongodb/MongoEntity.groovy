@@ -28,6 +28,7 @@ import org.bson.conversions.Bson
 import org.grails.datastore.gorm.GormEnhancer
 import org.grails.datastore.gorm.GormEntity
 import org.grails.datastore.gorm.mongo.MongoCriteriaBuilder
+import org.grails.datastore.gorm.mongo.api.MongoNativeStaticApi
 import org.grails.datastore.gorm.mongo.api.MongoStaticApi
 import org.grails.datastore.gorm.schemaless.DynamicAttributes
 import org.grails.datastore.mapping.core.AbstractDatastore
@@ -281,6 +282,10 @@ trait MongoEntity<D> implements GormEntity<D>, DynamicAttributes {
             callable.setDelegate(staticApi)
             return callable.call()
         }
+    }
+
+    static <T> T withNativeTransaction(Closure<T> callable) {
+        (T) (((MongoNativeStaticApi) currentGormStaticApi()).withNativeTransaction callable)
     }
 
     private static MongoStaticApi currentMongoStaticApi() {

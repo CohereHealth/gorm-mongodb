@@ -22,6 +22,7 @@ import groovy.transform.InheritConstructors
 import org.grails.datastore.gorm.bootstrap.AbstractDatastoreInitializer
 import org.grails.datastore.gorm.events.ConfigurableApplicationContextEventPublisher
 import org.grails.datastore.gorm.events.DefaultApplicationEventPublisher
+import org.grails.datastore.gorm.mongo.support.MongoDatastorePersistenceContextInterceptor
 import org.grails.datastore.gorm.plugin.support.PersistenceContextInterceptorAggregator
 import org.grails.datastore.gorm.support.AbstractDatastorePersistenceContextInterceptor
 import org.grails.datastore.gorm.support.DatastorePersistenceContextInterceptor
@@ -56,7 +57,7 @@ class MongoDbDataStoreSpringInitializer extends AbstractDatastoreInitializer {
 
     @Override
     protected Class<AbstractDatastorePersistenceContextInterceptor> getPersistenceInterceptorClass() {
-        DatastorePersistenceContextInterceptor
+        MongoDatastorePersistenceContextInterceptor
     }
 
     @Override

@@ -36,6 +36,8 @@ import org.grails.datastore.gorm.events.ConfigurableApplicationEventPublisher;
 import org.grails.datastore.gorm.events.DefaultApplicationEventPublisher;
 import org.grails.datastore.gorm.events.DomainEventListener;
 import org.grails.datastore.gorm.mongo.MongoGormEnhancer;
+import org.grails.datastore.gorm.mongo.api.MongoNativeInstanceApi;
+import org.grails.datastore.gorm.mongo.api.MongoNativeStaticApi;
 import org.grails.datastore.gorm.mongo.api.MongoStaticApi;
 import org.grails.datastore.gorm.multitenancy.MultiTenantEventListener;
 import org.grails.datastore.gorm.utils.ClasspathEntityScanner;
@@ -62,7 +64,6 @@ import org.grails.datastore.mapping.multitenancy.MultiTenancySettings;
 import org.grails.datastore.mapping.multitenancy.MultiTenantCapableDatastore;
 import org.grails.datastore.mapping.multitenancy.TenantResolver;
 import org.grails.datastore.mapping.multitenancy.exceptions.TenantNotFoundException;
-import org.grails.datastore.mapping.transactions.DatastoreTransactionManager;
 import org.grails.datastore.mapping.transactions.TransactionCapableDatastore;
 import org.grails.datastore.mapping.validation.ValidatorRegistry;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -117,6 +118,7 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
     protected final MultiTenancySettings.MultiTenancyMode multiTenancyMode;
     protected final TenantResolver tenantResolver;
     protected final AutoTimestampEventListener autoTimestampEventListener;
+    protected final boolean nativeTransactionsEnabled;
 
     /**
      * Configures a new {@link MongoDatastore} for the given arguments
@@ -153,9 +155,15 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
                 MongoClientSettings.getDefaultCodecRegistry()
         );
 
-        DatastoreTransactionManager datastoreTransactionManager = new DatastoreTransactionManager();
-        datastoreTransactionManager.setDatastore(this);
-        transactionManager = datastoreTransactionManager;
+        this.nativeTransactionsEnabled = settings.isNativeTransactionsEnabled();
+
+        // Use flexible transaction manager that dynamically supports native transactions
+        transactionManager = new MongoDatastoreTransactionManager(this, this.mongo);
+
+//        DatastoreTransactionManager datastoreTransactionManager = new DatastoreTransactionManager();
+//        datastoreTransactionManager.setDatastore(this);
+//        transactionManager = datastoreTransactionManager;
+
         for(PersistentEntity entity : mappingContext.getPersistentEntities()) {
             registerEntity(entity);
         }
@@ -714,7 +722,20 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
             return createStatelessSession(connDetails);
         } else {
             if (codecEngine) {
-                return new MongoCodecSession(this, getMappingContext(), getApplicationEventPublisher(), false);
+                // Check for active native transaction context, not just global flag
+                boolean hasNativeSession = MongoNativeTransactionContext.hasNativeSession();
+                boolean useNativeSession = nativeTransactionsEnabled || hasNativeSession;
+                
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Creating session - nativeTransactionsEnabled: {}, hasNativeSession: {}, useNativeSession: {}", 
+                             nativeTransactionsEnabled, hasNativeSession, useNativeSession);
+                }
+                
+                if (useNativeSession) {
+                    return new MongoNativeCodecSession(this, getMappingContext(), getApplicationEventPublisher(), false);
+                } else {
+                    return new MongoCodecSession(this, getMappingContext(), getApplicationEventPublisher(), false);
+                }
             } else {
                 return new MongoSession(this, getMappingContext(), getApplicationEventPublisher(), false);
             }
@@ -722,8 +743,80 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
     }
 
     /**
-     * Runs the initialization sequence
-     * @param settings
+     * Runs the initialization sequence for the MongoDB datastore. This includes:
+     * - Setting up mapping context listeners for entity lifecycle events
+     * - Initializing type converters for data transformation
+     * - Building database indexes based on domain class mappings
+     * - Creating and configuring the GORM enhancer with native transaction support
+     * - Registering validation constraints and event listeners
+     * - Setting up multi-tenancy support if configured
+     *
+     * <p>The initialization process varies based on configuration:
+     * <ul>
+     *   <li>Native transactions: Enables MongoDB 4.0+ multi-document ACID transactions</li>
+     *   <li>Codec engine: Uses BSON codecs for efficient serialization</li>
+     *   <li>Multi-tenancy: Configures tenant-aware data access</li>
+     *   <li>Validation: Sets up GORM validation constraints</li>
+     * </ul>
+     *
+     * <p>Configuration examples:
+     * <pre>{@code
+     * // Enable native transactions (requires MongoDB 4.0+ with replica set)
+     * grails.mongodb.nativeTransactions = true
+     *
+     * // Configure connection
+     * grails.mongodb.host = "localhost"
+     * grails.mongodb.port = 27017
+     * grails.mongodb.databaseName = "myapp"
+     *
+     * // Enable codec engine for better performance
+     * grails.mongodb.engine = "codec"
+     * }</pre>
+     *
+     * <p>Usage in domain classes:
+     * <pre>{@code
+     * @Entity
+     * class Person {
+     *     String name
+     *     Integer age
+     *
+     *     static constraints = {
+     *         name blank: false
+     *         age min: 0
+     *     }
+     *
+     *     static mapping = {
+     *         collection "people"
+     *         database "myapp"
+     *     }
+     * }
+     *
+     * // Using native transactions
+     * Person.withNativeTransaction { session ->
+     *     new Person(name: "John", age: 30).save()
+     *     new Address(person: person, street: "123 Main St").save()
+     *     // Both operations committed atomically
+     * }
+     * }</pre>
+     *
+     * <p>The enhancer provides MongoDB-specific methods:
+     * <ul>
+     *   <li>{@code findByGeoWithin()}: Geospatial queries</li>
+     *   <li>{@code aggregate()}: MongoDB aggregation pipeline</li>
+     *   <li>{@code withNativeTransaction()}: Native MongoDB transactions</li>
+     *   <li>{@code collection()}: Direct access to MongoDB collection</li>
+     * </ul>
+     *
+     * @param settings The MongoDB connection source settings containing database configuration,
+     *                 transaction settings, and performance options
+     * @return The configured MongoGormEnhancer instance that provides GORM dynamic methods
+     *         and MongoDB-specific functionality to domain classes
+     * @throws ConfigurationException if MongoDB connection cannot be established or
+     *                                configuration is invalid
+     * @see MongoGormEnhancer
+     * @see MongoTransactionManager
+     * @see MongoConnectionSourceSettings
+     * @since 1.0
      */
     protected MongoGormEnhancer initialize(final MongoConnectionSourceSettings settings) {
         getMappingContext().addMappingContextListener(this);
@@ -743,14 +836,16 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
             @Override
             protected <D> MongoStaticApi<D> getStaticApi(Class<D> cls, String qualifier) {
                 MongoDatastore mongoDatastore = getDatastoreForQualifier(cls, qualifier);
-                return new MongoStaticApi<>(cls, mongoDatastore, createDynamicFinders(mongoDatastore), transactionManager);
+                // Always use native API to support withNativeTransaction method
+                return new MongoNativeStaticApi<>(cls, mongoDatastore, createDynamicFinders(mongoDatastore), transactionManager);
             }
 
             @Override
             protected <D> GormInstanceApi<D> getInstanceApi(Class<D> cls, String qualifier) {
                 MongoDatastore mongoDatastore = getDatastoreForQualifier(cls, qualifier);
 
-                GormInstanceApi<D> instanceApi = new GormInstanceApi<>(cls, mongoDatastore);
+                // Always use native instance API to support withNativeTransaction method
+                GormInstanceApi<D> instanceApi = new MongoNativeInstanceApi<>(cls, mongoDatastore);
                 instanceApi.setFailOnError(getFailOnError());
                 instanceApi.setMarkDirty(getMarkDirty());
                 return instanceApi;
@@ -792,7 +887,20 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
     @Override
     protected Session createStatelessSession(PropertyResolver connectionDetails) {
         if (codecEngine) {
-            return new MongoCodecSession(this, getMappingContext(), getApplicationEventPublisher(), true);
+            // Check for active native transaction context, not just global flag
+            boolean hasNativeSession = MongoNativeTransactionContext.hasNativeSession();
+            boolean useNativeSession = nativeTransactionsEnabled || hasNativeSession;
+            
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Creating stateless session - nativeTransactionsEnabled: {}, hasNativeSession: {}, useNativeSession: {}", 
+                         nativeTransactionsEnabled, hasNativeSession, useNativeSession);
+            }
+            
+            if (useNativeSession) {
+                return new MongoNativeCodecSession(this, getMappingContext(), getApplicationEventPublisher(), true);
+            } else {
+                return new MongoCodecSession(this, getMappingContext(), getApplicationEventPublisher(), true);
+            }
         } else {
             return new MongoSession(this, getMappingContext(), getApplicationEventPublisher(), true);
         }
@@ -1057,5 +1165,42 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
 
     public AutoTimestampEventListener getAutoTimestampEventListener() {
         return this.autoTimestampEventListener;
+    }
+    
+    public boolean isNativeTransactionsEnabled() {
+        return nativeTransactionsEnabled;
+    }
+    
+    /**
+     * Executes the given closure within a MongoDB native transaction.
+     * 
+     * @param callable The closure to execute within the transaction
+     * @return The result of the closure execution
+     */
+    public <T> T withNativeTransaction(Closure<T> callable) {
+        if (MongoNativeTransactionContext.hasNativeSession()) {
+            return callable.call(MongoNativeTransactionContext.getNativeSession());
+        }
+
+        com.mongodb.client.ClientSession session = null;
+        try {
+            session = mongo.startSession();
+            session.startTransaction();
+            MongoNativeTransactionContext.pushNativeSession(session);
+
+            T result = callable.call(session);
+            session.commitTransaction();
+            return result;
+        } catch (Exception e) {
+            if (session != null && session.hasActiveTransaction()) {
+                session.abortTransaction();
+            }
+            throw e;
+        } finally {
+            MongoNativeTransactionContext.popNativeSession();
+            if (session != null) {
+                session.close();
+            }
+        }
     }
 }

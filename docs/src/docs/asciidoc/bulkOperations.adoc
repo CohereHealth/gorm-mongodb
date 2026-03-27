@@ -1,0 +1,115 @@
+GORM for MongoDB automatically optimizes database performance by using MongoDB's bulk write operations when flushing changes to the database.
+
+==== How Bulk Operations Work
+
+When you call `flush()` or when auto-flush occurs, GORM groups all pending operations by entity type and executes them using MongoDB's `bulkWrite()` method. This provides significant performance improvements compared to executing individual operations.
+
+[source,groovy]
+----
+// These operations will be batched automatically
+Person.withTransaction {
+    (1..1000).each { i ->
+        new Person(name: "Person $i").save()
+    }
+    // All 1000 inserts are executed in bulk when transaction commits
+}
+----
+
+==== Configuration
+
+Bulk operations are automatically optimized and use configurable batch sizes:
+
+[source,groovy]
+----
+grails {
+    mongodb {
+        bulkBatchSize = 1000 // Default: 1000
+    }
+}
+----
+
+This setting applies to both automatic flush operations and explicit bulk API calls.
+
+==== Batch Size Guidelines
+
+* **Small batches (100-500)**: Better for memory-constrained environments
+* **Medium batches (1000-2000)**: Good balance for most applications (default: 1000)
+* **Large batches (2000-5000)**: Maximum throughput for high-volume operations
+
+==== Transaction Support
+
+Bulk operations work seamlessly with MongoDB native transactions:
+
+[source,groovy]
+----
+Person.withTransaction { status ->
+    // All operations within this transaction will use bulk writes
+    (1..500).each { i ->
+        new Person(name: "Person $i").save()
+    }
+    // Bulk operations are executed with the transaction session
+}
+----
+
+==== Optimistic Locking
+
+Version-based optimistic locking is maintained across bulk operations. If any document has been modified by another process, an `OptimisticLockingException` will be thrown after all bulk operations complete.
+
+==== Performance Benefits
+
+Bulk operations provide several performance advantages:
+
+* **Reduced Network Round-trips**: Multiple operations are sent in a single request
+* **Better Throughput**: MongoDB can optimize execution of grouped operations  
+* **Memory Efficiency**: Large datasets are processed in configurable chunks
+* **Transaction Efficiency**: Fewer transaction boundaries for better performance
+
+==== Automatic Operation Grouping
+
+GORM automatically groups operations by type and entity:
+
+* **Inserts**: Grouped using `InsertOneModel`
+* **Updates**: Grouped using `UpdateOneModel` with optimistic locking support
+* **Deletes**: Single deletes use `DeleteOneModel`, multiple deletes use `DeleteManyModel` with `$in` queries
+
+This optimization is transparent to your application code - no changes are required to benefit from bulk operations.
+
+==== Direct Bulk Operations API
+
+For explicit bulk operations, GORM provides convenient static methods:
+
+[source,groovy]
+----
+// Bulk insert multiple entities
+BulkWriteResult result = Person.insertAll([
+    new Person(name: "John"),
+    new Person(name: "Jane"),
+    new Person(name: "Bob")
+])
+
+// Bulk save (insert or update) multiple entities
+BulkWriteResult result = Person.saveAll(entities)
+
+// Bulk delete by IDs
+BulkWriteResult result = Person.deleteAll([id1, id2, id3])
+----
+
+**Usage in Data Services:**
+
+[source,groovy]
+----
+@Service
+class PersonDataService {
+    
+    BulkWriteResult createPersons(List<Map> personData) {
+        List<Person> persons = personData.collect { new Person(it) }
+        return Person.insertAll(persons)
+    }
+    
+    BulkWriteResult updatePersons(List<Person> persons) {
+        return Person.saveAll(persons)
+    }
+}
+----
+
+These methods return a `BulkWriteResult` containing operation statistics and work seamlessly with transactions.

@@ -1,0 +1,186 @@
+= Native MongoDB Transactions
+
+GORM for MongoDB now supports native MongoDB transactions (MongoDB 4.0+), providing true ACID guarantees across multiple documents and collections.
+
+== Configuration
+
+=== Global Native Transactions
+
+Enable native transactions globally:
+
+[source,yaml]
+----
+grails:
+  mongodb:
+    nativeTransactions: true
+----
+
+With global configuration, all GORM operations automatically use native MongoDB transactions.
+
+=== Selective Native Transactions
+
+Use native transactions selectively without global configuration:
+
+[source,groovy]
+----
+// Static API
+Person.withNativeTransaction { session ->
+    new Person(name: "John").save()
+    new Address(person: person, street: "123 Main St").save()
+    return person
+}
+
+// Instance API
+def person = new Person(name: "Jane")
+person.withNativeTransaction { session ->
+    person.save()
+    // Access to MongoDB ClientSession
+    def collection = session.getDatabase("mydb").getCollection("audit")
+    collection.insertOne(new Document("action", "person_created"))
+}
+----
+
+== Transaction Inheritance
+
+Nested transaction calls inherit the parent transaction type:
+
+[source,groovy]
+----
+// Native parent - all children use native transactions
+Person.withNativeTransaction { session ->
+    personService.createPerson("John")     // Native
+    Person.withTransaction { status ->      // Inherits native
+        addressService.createAddress(person) // Native
+    }
+}
+
+// Regular parent - all children use regular transactions  
+Person.withTransaction { status ->
+    personService.createPerson("Jane")     // Regular
+    Person.withNativeTransaction { session -> // Inherits regular
+        addressService.createAddress(person) // Regular
+    }
+}
+----
+
+== Spring Boot Integration
+
+Native transactions work seamlessly with Spring's `@Transactional`:
+
+[source,groovy]
+----
+@Service
+class PersonService {
+    
+    @Transactional
+    Person createPerson(String name) {
+        // Uses native transactions when globally enabled
+        return new Person(name: name).save()
+    }
+    
+    @Transactional(rollbackFor = Exception.class)
+    void processPersons(List<String> names) {
+        names.each { name ->
+            createPerson(name) // Nested call inherits transaction
+        }
+    }
+}
+----
+
+== Accessing Native Session
+
+Check transaction state and access ClientSession:
+
+[source,groovy]
+----
+// From Domain Classes
+if (Person.isInNativeTransaction()) {
+    def session = Person.getCurrentNativeSession()
+    // Direct MongoDB operations
+}
+
+// From Services
+@Service
+class PersonService {
+    def processPersons() {
+        if (MongoNativeTransactionHelper.isInNativeTransaction()) {
+            def session = MongoNativeTransactionHelper.getCurrentNativeSession()
+            // Use ClientSession for raw MongoDB operations
+        }
+    }
+}
+----
+
+== Error Handling and Rollback
+
+Native transactions provide automatic rollback on exceptions:
+
+[source,groovy]
+----
+Person.withNativeTransaction { session ->
+    new Person(name: "John").save()
+    new Address(street: "123 Main St").save()
+    
+    if (someCondition) {
+        throw new RuntimeException("Business rule violation")
+        // Both Person and Address are automatically rolled back
+    }
+}
+----
+
+== Testing
+
+Native transactions work with Spock integration tests:
+
+[source,groovy]
+----
+class PersonSpec extends GormDatastoreSpec {
+    
+    @Override
+    Map getConfiguration() {
+        ['grails.mongodb.nativeTransactions': true]
+    }
+    
+    @Transactional
+    def "test native transaction rollback"() {
+        when:
+        new Person(name: "John").save(flush: true)
+        throw new RuntimeException("Force rollback")
+        
+        then:
+        thrown(RuntimeException)
+        Person.count() == 0 // Rolled back
+    }
+}
+----
+
+== Performance Considerations
+
+- Native transactions provide better consistency guarantees
+- Slight performance overhead compared to session-based transactions
+- Use for operations requiring strict ACID compliance
+- Consider selective usage for critical business operations
+
+== Migration Strategy
+
+1. **Phase 1**: Use `withNativeTransaction` for critical operations
+2. **Phase 2**: Test and validate behavior in staging environment  
+3. **Phase 3**: Enable global native transactions via configuration
+4. **Phase 4**: Remove explicit `withNativeTransaction` calls (optional)
+
+== Debugging
+
+Enable debug logging to trace transaction behavior:
+
+[source,yaml]
+----
+logging:
+  level:
+    org.grails.datastore.mapping.mongo: DEBUG
+----
+
+Debug logs include:
+- Transaction creation and lifecycle
+- Session management and nesting
+- Commit and rollback operations
+- Context stack operations

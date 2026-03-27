@@ -1,13 +1,13 @@
-MongoDB doesn't support transactions directly, however GORM for MongoDB does batch up inserts and updates until the session is flushed. This makes it possible to support some rollback options.
+GORM for MongoDB supports both session-based transactions (legacy) and native MongoDB transactions (MongoDB 4.0+).
 
-You can use either transactional services or the static `withTransaction` method. To mark a service as using the MongoDB transaction manager, use the static `transactional` property with the value `'mongo'`:
+== Session-Based Transactions (Legacy)
+
+GORM batches inserts and updates until the session is flushed, providing transaction-like semantics:
 
 [source,groovy]
 ----
 static transactional = 'mongo'
 ----
-
-Alternately you can do ad-hoc transactions using the `withTransaction` method:
 
 [source,groovy]
 ----
@@ -18,6 +18,42 @@ Person.withTransaction { status ->
 }
 ----
 
-For example in this case neither `Person` object will be persisted to the database, because underneath the surface a persistence session is being used to batch up both insert operations into a single insert. When an exception is thrown neither insert is ever executed, hence we allow for some transactional semantics at the GORM-level.
+== Native MongoDB Transactions
 
-Using the lower level API you can of course also take advantage of Mongo's support for https://docs.mongodb.org/manual/tutorial/isolate-sequence-of-operations[Atomic operations].
+For true ACID guarantees, use native MongoDB transactions (requires MongoDB 4.0+):
+
+=== Global Configuration
+
+[source,yaml]
+----
+grails:
+  mongodb:
+    nativeTransactions: true
+----
+
+=== Selective Usage
+
+[source,groovy]
+----
+Person.withNativeTransaction { session ->
+    new Person(name:"Bob", age:50).save()
+    new Address(person: person, street: "123 Main St").save()
+    // True ACID transaction across multiple collections
+}
+----
+
+=== Spring Integration
+
+[source,groovy]
+----
+@Service
+class PersonService {
+    @Transactional
+    Person createPerson(String name) {
+        // Uses native transactions when enabled
+        return new Person(name: name).save()
+    }
+}
+----
+
+See link:native-transactions.html[Native Transactions] for complete documentation.

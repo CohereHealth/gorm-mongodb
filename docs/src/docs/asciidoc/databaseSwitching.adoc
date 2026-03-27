@@ -9,7 +9,7 @@ Person.withDatabase("administrators") {
 }
 ----
 
-The above example will save a `Person` instance to the 'administrators' database. The database is used for the scope of the closure. You can switch database for the scope of the active session:
+The above example will save a `Provider` instance to the 'administrators' database. The database is used for the scope of the closure. You can switch database for the scope of the active session:
 
 [source,groovy]
 ----

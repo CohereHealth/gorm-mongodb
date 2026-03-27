@@ -94,7 +94,7 @@ class Person {
 }
 ----
 
-In this example we see that the `Person` entity has been mapped to a collection called "mycollection" in a database called "mydb".
+In this example we see that the `Provider` entity has been mapped to a collection called "mycollection" in a database called "mydb".
 
 You can also control how an individual property maps onto a Mongo Document field (the default is to use the property name itself):
 

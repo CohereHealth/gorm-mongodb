@@ -12,4 +12,4 @@ With this done all domain classes in grails-app/domain will be persisted via Mon
 grails create-domain-class Person
 ----
 
-The `Person` domain class will automatically be a persistent entity that can be stored in MongoDB.
+The `Provider` domain class will automatically be a persistent entity that can be stored in MongoDB.

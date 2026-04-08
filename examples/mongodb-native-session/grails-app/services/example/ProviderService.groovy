@@ -19,7 +19,7 @@ class ProviderService {
         }
     }
 
-    def updateProviderWithNativeTransaction(Long providerId, Map updates) {
+    def updateProviderWithNativeTransaction(Serializable providerId, Map updates) {
         log.info("Updating provider ${providerId} with native transaction")
         
         return Provider.withNativeTransaction { session ->
@@ -38,7 +38,7 @@ class ProviderService {
         }
     }
 
-    def deleteProviderWithNativeTransaction(Long providerId) {
+    def deleteProviderWithNativeTransaction(Serializable providerId) {
         log.info("Deleting provider ${providerId} with native transaction")
         
         return Provider.withNativeTransaction { session ->
@@ -62,7 +62,7 @@ class ProviderService {
                 
                 providerData.each { data ->
                     def provider = new Provider(data)
-                    provider.save(failOnError: true)
+                    provider.save(failOnError: true, flush: true)
                     createdProviders << provider
                     log.info("Created provider: ${provider}")
                 }

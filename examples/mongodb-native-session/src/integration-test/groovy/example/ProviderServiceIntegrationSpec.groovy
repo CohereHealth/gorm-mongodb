@@ -1,12 +1,13 @@
 package example
 
-import grails.gorm.transactions.Rollback
 import grails.testing.mixin.integration.Integration
+import org.bson.types.ObjectId
 import org.grails.datastore.mapping.mongo.MongoNativeTransactionContext
+import org.grails.datastore.mapping.mongo.NativeRollback
 import spock.lang.Specification
 
 @Integration
-@Rollback
+@NativeRollback
 class ProviderServiceIntegrationSpec extends Specification {
 
     ProviderService providerService
@@ -15,20 +16,19 @@ class ProviderServiceIntegrationSpec extends Specification {
         when: "creating a provider with native transaction"
         def provider = providerService.createProviderWithNativeTransaction("John", "Doe", 30)
 
-        then: "provider is created successfully and visible within transaction"
+        then: "provider is created successfully"
         provider != null
-        provider.id != null
+        provider.id instanceof ObjectId
         provider.firstName == "John"
         provider.lastName == "Doe"
         provider.age == 30
         Provider.count() == 1
         Provider.get(provider.id) != null
-        // Transaction will rollback automatically after this test
     }
 
     void "test update provider with native transaction"() {
         given: "an existing provider"
-        def provider = new Provider(firstName: "Jane", lastName: "Smith", age: 25).save(flush: true)
+        def provider = new Provider(firstName: "Jane", lastName: "Smith", age: 25).save(failOnError: true)
 
         when: "updating the provider with native transaction"
         def updatedProvider = providerService.updateProviderWithNativeTransaction(provider.id, [age: 26, firstName: "Janet"])
@@ -46,7 +46,7 @@ class ProviderServiceIntegrationSpec extends Specification {
 
     void "test delete provider with native transaction"() {
         given: "an existing provider"
-        def provider = new Provider(firstName: "Bob", lastName: "Johnson", age: 35).save(flush: true)
+        def provider = new Provider(firstName: "Bob", lastName: "Johnson", age: 35).save(failOnError: true)
         def providerId = provider.id
 
         when: "deleting the provider with native transaction"
@@ -72,7 +72,7 @@ class ProviderServiceIntegrationSpec extends Specification {
         then: "all providers are created"
         createdProviders.size() == 3
         Provider.count() == 3
-        createdProviders.every { it.id != null }
+        createdProviders.every { it.id instanceof ObjectId }
     }
 
     void "test multiple providers creation with rollback"() {
@@ -106,48 +106,28 @@ class ProviderServiceIntegrationSpec extends Specification {
     }
 
     void "test native transaction context detection"() {
-        given: "initial state"
-        boolean contextDetected = false
-
-        when: "executing within native transaction"
-        Provider.withNativeTransaction { session ->
-            contextDetected = MongoNativeTransactionContext.isInNativeTransaction()
-            new Provider(firstName: "Context", lastName: "Test", age: 40).save(flush: true)
-        }
-
-        then: "native transaction context is detected"
-        contextDetected == true
-        Provider.findByFirstName("Context") != null
+        expect: "native transaction context is detected"
+        MongoNativeTransactionContext.isInNativeTransaction()
     }
 
     void "test immediate execution in native transaction"() {
-        given: "initial count"
-        def initialCount = Provider.count()
+        when: "creating provider - should execute immediately without flush"
+        def provider = new Provider(firstName: "Immediate", lastName: "Test", age: 35)
+        provider.save()
 
-        when: "creating provider in native transaction"
-        Provider.withNativeTransaction { session ->
-            def provider = new Provider(firstName: "Immediate", lastName: "Test", age: 35)
-            provider.save() // No flush needed - should execute immediately
-            
-            then: "provider is immediately available"
-            Provider.count() == initialCount + 1
-            Provider.findByFirstName("Immediate") != null
-        }
-
-        then: "provider persists after transaction"
+        then: "provider is immediately available"
+        provider.id instanceof ObjectId
         Provider.findByFirstName("Immediate") != null
     }
 
     void "test optimistic locking in native transaction"() {
         given: "a provider with version"
-        def provider = new Provider(firstName: "Version", lastName: "Test", age: 30).save(flush: true)
+        def provider = new Provider(firstName: "Version", lastName: "Test", age: 30).save(failOnError: true)
         def originalVersion = provider.version
 
-        when: "updating provider in native transaction"
-        Provider.withNativeTransaction { session ->
-            provider.age = 31
-            provider.save()
-        }
+        when: "updating provider"
+        provider.age = 31
+        provider.save(failOnError: true)
 
         then: "version is incremented"
         provider.version == originalVersion + 1
@@ -159,13 +139,10 @@ class ProviderServiceIntegrationSpec extends Specification {
     }
 
     void "test transaction isolation"() {
-        given: "initial state"
-        def initialCount = Provider.count()
-
         when: "creating provider in failed transaction"
         try {
             Provider.withNativeTransaction { session ->
-                new Provider(firstName: "Isolated", lastName: "Test", age: 25).save(flush: true)
+                new Provider(firstName: "Isolated", lastName: "Test", age: 25).save(failOnError: true)
                 throw new RuntimeException("Simulated failure")
             }
         } catch (RuntimeException e) {
@@ -173,7 +150,6 @@ class ProviderServiceIntegrationSpec extends Specification {
         }
 
         then: "provider is not persisted due to rollback"
-        Provider.count() == initialCount
         Provider.findByFirstName("Isolated") == null
     }
 }

@@ -1,15 +1,24 @@
 package example
 
+import com.mongodb.client.ClientSession
 import org.spockframework.runtime.extension.IAnnotationDrivenExtension
 import org.spockframework.runtime.extension.IMethodInterceptor
 import org.spockframework.runtime.extension.IMethodInvocation
 import org.spockframework.runtime.model.FeatureInfo
+import org.spockframework.runtime.model.SpecInfo
 import org.grails.datastore.mapping.mongo.MongoDatastore
-import org.springframework.context.ApplicationContext
+import org.grails.datastore.mapping.mongo.MongoNativeTransactionContext
 import grails.util.Holders
 
 class MongoNativeTransactionExtension implements IAnnotationDrivenExtension<MongoNativeTransaction> {
-    
+
+    @Override
+    void visitSpecAnnotation(MongoNativeTransaction annotation, SpecInfo spec) {
+        spec.features.each { feature ->
+            feature.addInterceptor(new MongoNativeTransactionInterceptor())
+        }
+    }
+
     @Override
     void visitFeatureAnnotation(MongoNativeTransaction annotation, FeatureInfo feature) {
         feature.addInterceptor(new MongoNativeTransactionInterceptor())
@@ -17,15 +26,22 @@ class MongoNativeTransactionExtension implements IAnnotationDrivenExtension<Mong
 }
 
 class MongoNativeTransactionInterceptor implements IMethodInterceptor {
-    
+
     @Override
     void intercept(IMethodInvocation invocation) throws Throwable {
-        ApplicationContext ctx = Holders.applicationContext
-        MongoDatastore datastore = ctx.getBean(MongoDatastore)
-        
-        datastore.withNativeTransaction { session ->
+        MongoDatastore datastore = Holders.applicationContext.getBean(MongoDatastore)
+        ClientSession session = datastore.mongoClient.startSession()
+
+        try {
+            session.startTransaction()
+            MongoNativeTransactionContext.pushNativeSession(session)
             invocation.proceed()
-            // Transaction will rollback automatically after test completes
+        } finally {
+            if (session.hasActiveTransaction()) {
+                session.abortTransaction()
+            }
+            MongoNativeTransactionContext.popNativeSession()
+            session.close()
         }
     }
 }

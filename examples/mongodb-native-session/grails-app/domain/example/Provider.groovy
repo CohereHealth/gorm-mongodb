@@ -1,8 +1,10 @@
 package example
 
 import grails.mongodb.MongoEntity
+import org.bson.types.ObjectId
 
 class Provider implements MongoEntity<Provider> {
+    ObjectId id
     String firstName
     String lastName
     Integer age

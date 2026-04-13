@@ -239,15 +239,19 @@ class MongoNativeCodecEntityPersister extends MongoCodecEntityPersister {
 
     private void executeUpdate(PersistentEntity entity, Object obj, Serializable id,
                                MongoCollection collection, EntityAccess entityAccess, ClientSession session) {
+        def currentVersion = null
+        if (entity.isVersioned()) {
+            currentVersion = entityAccess.getProperty(entity.version.name)
+        }
+
         def updateDoc = encodeUpdate(obj, entityAccess)
         if (!updateDoc) return
 
         Document query = new Document("_id", id)
         if (entity.isVersioned()) {
-            // encodeUpdate already incremented the version and included it in $set
-            // Use the post-increment version minus 1 for the optimistic lock query
-            def newVersion = entityAccess.getProperty(entity.version.name)
-            def currentVersion = ((Number) newVersion).longValue() - 1
+            if (currentVersion == null) {
+                currentVersion = entityAccess.getProperty(entity.version.name)
+            }
             query.append("version", currentVersion)
         }
 

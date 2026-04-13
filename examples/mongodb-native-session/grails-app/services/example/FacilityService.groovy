@@ -25,6 +25,42 @@ class FacilityService {
         }
     }
 
+    def replaceFacilityAddress(Serializable facilityId, Map newAddressData) {
+        return Facility.withNativeTransaction { session ->
+            def facility = Facility.get(facilityId)
+            facility.address = new FacilityAddress(newAddressData)
+            facility.save(failOnError: true)
+        }
+    }
+
+    def clearFacilityAddress(Serializable facilityId) {
+        return Facility.withNativeTransaction { session ->
+            def facility = Facility.get(facilityId)
+            facility.address = null
+            facility.save(failOnError: true)
+        }
+    }
+
+    def findFacilityByEmbeddedZip(String zipCode) {
+        return Facility.withNativeTransaction { session ->
+            Facility.createCriteria().get {
+                address {
+                    eq('zipCode', zipCode)
+                }
+            }
+        }
+    }
+
+    def projectEmbeddedAddresses() {
+        return Facility.withNativeTransaction { session ->
+            Facility.createCriteria().list {
+                projections {
+                    property('address')
+                }
+            }
+        }
+    }
+
     def findFacilitiesByCity(String city) {
         return Facility.withNativeTransaction { session ->
             Facility.createCriteria().list {

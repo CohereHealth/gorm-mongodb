@@ -107,7 +107,7 @@ class MongoNativeCodecSession extends MongoCodecSession {
      * 
      * <h3>Why flush() is unnecessary:</h3>
      * <ul>
-     *   <li>Operations execute immediately via addPendingInsert/Update/Delete overrides</li>
+     *   <li>Operations execute immediately via MongoNativeCodecEntityPersister</li>
      *   <li>No pending operations queue exists to flush</li>
      *   <li>Transaction boundaries are managed by MongoDB ClientSession</li>
      * </ul>
@@ -124,10 +124,21 @@ class MongoNativeCodecSession extends MongoCodecSession {
      * }</pre>
      */
     @Override
+    protected MongoCodecEntityPersister getOrCreatePersister(Class type) {
+        return mongoCodecEntityPersisterMap.computeIfAbsent(type) { Class clazz ->
+            def context = getDocumentMappingContext()
+            def entity = context.getPersistentEntity(clazz.name)
+            if (entity) {
+                return new MongoNativeCodecEntityPersister(context, entity, this, publisher, cacheAdapterRepository)
+            }
+            throw new IllegalArgumentException("Type [$clazz] is not an entity")
+        }
+    }
+
+    @Override
     void flush() {
         log.warn("flush() called on MongoNativeCodecSession - operations are executed immediately, flush is unnecessary. " +
                 "Consider removing explicit flush() calls when using native transactions.")
-        log.trace("flush() no-op completed for native transaction session")
     }
 
     /**
@@ -236,13 +247,13 @@ class MongoNativeCodecSession extends MongoCodecSession {
         if (MongoNativeTransactionContext.hasNativeSession()) {
             log.debug("Reusing existing native session for nested transaction")
             final ClientSession nativeSession = MongoNativeTransactionContext.getNativeSession()
-            return new MongoTransactionObject(new MongoSessionHolder(nativeSession))
+            return new MongoTransactionObject(new MongoSessionHolder(this, nativeSession))
         }
 
         if (mongoDatastore.nativeTransactionsEnabled) {
             log.debug("Creating new native MongoDB transaction")
             final ClientSession clientSession = getNativeInterface().startSession()
-            MongoTransactionObject tx = new MongoTransactionObject(new MongoSessionHolder(clientSession))
+            MongoTransactionObject tx = new MongoTransactionObject(new MongoSessionHolder(this, clientSession))
             MongoNativeTransactionContext.pushNativeSession(tx.getNativeTransaction())
             return tx
         } else {
@@ -296,7 +307,7 @@ class MongoNativeCodecSession extends MongoCodecSession {
         // Check if we're in a native transaction context
         if (MongoNativeTransactionContext.hasNativeSession()) {
             ClientSession nativeSession = MongoNativeTransactionContext.getNativeSession()
-            return new MongoTransactionObject(new MongoSessionHolder(nativeSession))
+            return new MongoTransactionObject(new MongoSessionHolder(this, nativeSession))
         }
         
         // No transaction available

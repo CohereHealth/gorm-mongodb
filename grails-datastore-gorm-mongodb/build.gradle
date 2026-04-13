@@ -12,6 +12,7 @@ dependencies {
         exclude group:'org.grails', module:'grails-datastore-gorm-hibernate-core'
     }
     compileOnly "javax.servlet:javax.servlet-api:$servletApiVersion"
+    compileOnly "org.spockframework:spock-core:$spockVersion"
     
     testImplementation "org.grails:grails-datastore-gorm-tck:$datastoreVersion"
     testImplementation "org.grails:grails-gorm-testing-support:3.2.2"

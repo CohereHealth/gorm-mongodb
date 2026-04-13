@@ -1,17 +1,15 @@
-package example
+package org.grails.datastore.mapping.mongo
 
-import org.grails.datastore.mapping.mongo.MongoDatastore
-import org.grails.datastore.mapping.mongo.MongoNativeTransactionContext
-import org.grails.datastore.mapping.mongo.MongoSessionHolder
-import org.grails.datastore.mapping.mongo.NativeRollback
+import com.mongodb.client.ClientSession
+import grails.util.Holders
+import groovy.transform.CompileStatic
 import org.spockframework.runtime.extension.IGlobalExtension
 import org.spockframework.runtime.extension.IMethodInterceptor
 import org.spockframework.runtime.extension.IMethodInvocation
 import org.spockframework.runtime.model.SpecInfo
-import com.mongodb.client.ClientSession
-import grails.util.Holders
 import org.springframework.transaction.support.TransactionSynchronizationManager
 
+@CompileStatic
 class NativeRollbackExtension implements IGlobalExtension {
 
     @Override
@@ -24,6 +22,7 @@ class NativeRollbackExtension implements IGlobalExtension {
     }
 }
 
+@CompileStatic
 class NativeRollbackInterceptor implements IMethodInterceptor {
 
     @Override
@@ -35,12 +34,8 @@ class NativeRollbackInterceptor implements IMethodInterceptor {
             session.startTransaction()
             MongoNativeTransactionContext.pushNativeSession(session)
 
-            // Bind MongoSessionHolder so getCurrentSession() works and doGetTransaction() reuses it
             def sessionHolder = new MongoSessionHolder(datastore.connect(), session)
             TransactionSynchronizationManager.bindResource(datastore, sessionHolder)
-
-            // Connect a GORM session (will be MongoNativeCodecSession)
-//            datastore.connect()
 
             invocation.proceed()
         } finally {

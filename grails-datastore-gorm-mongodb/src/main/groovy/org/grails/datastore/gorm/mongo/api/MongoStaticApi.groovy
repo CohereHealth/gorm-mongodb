@@ -224,6 +224,36 @@ class MongoStaticApi<D> extends GormStaticApi<D> implements MongoAllOperations<D
     }
 
     @Override
+    public <T> List<T> aggregate(List pipeline, Class<T> resultType) {
+        aggregate(pipeline, resultType, null, null)
+    }
+
+    @Override
+    public <T> List<T> aggregate(List pipeline, Class<T> resultType, Function<AggregateIterable, AggregateIterable> doWithAggregate) {
+        aggregate(pipeline, resultType, doWithAggregate, null)
+    }
+
+    @Override
+    public <T> List<T> aggregate(List pipeline, Class<T> resultType, Function<AggregateIterable, AggregateIterable> doWithAggregate, ReadPreference readPreference) {
+        (List<T>)withSession( { AbstractMongoSession session ->
+            def persistentEntity = session.mappingContext.getPersistentEntity(persistentClass.name)
+            def mongoCollection = session.getCollection(persistentEntity)
+            if (readPreference != null) {
+                mongoCollection = mongoCollection.withReadPreference(readPreference)
+            }
+            List<? extends Bson> newPipeline = preparePipeline(pipeline)
+            def clientSession = MongoNativeTransactionContext.getNativeSession()
+            AggregateIterable<T> aggregateIterable = clientSession != null ?
+                mongoCollection.aggregate(clientSession, newPipeline, resultType) :
+                mongoCollection.aggregate(newPipeline, resultType)
+            if (doWithAggregate != null) {
+                aggregateIterable = doWithAggregate.apply(aggregateIterable)
+            }
+            aggregateIterable.into([])
+        } )
+    }
+
+    @Override
     List<D> search(String query, Map options = Collections.emptyMap()) {
         (List<D>)withSession( { AbstractMongoSession session ->
             def persistentEntity = session.mappingContext.getPersistentEntity(persistentClass.name)

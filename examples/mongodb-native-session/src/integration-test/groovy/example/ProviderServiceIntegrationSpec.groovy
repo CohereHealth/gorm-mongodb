@@ -47,15 +47,14 @@ class ProviderServiceIntegrationSpec extends Specification {
     void "test delete provider with native transaction"() {
         given: "an existing provider"
         def provider = new Provider(firstName: "Bob", lastName: "Johnson", age: 35).save(failOnError: true)
-        def providerId = provider.id
 
         when: "deleting the provider with native transaction"
-        def result = providerService.deleteProviderWithNativeTransaction(providerId)
+        def result = providerService.deleteProviderWithNativeTransaction(provider.id)
 
         then: "provider is deleted successfully"
         result == true
-        Provider.get(providerId) == null
-        Provider.count() == 0
+        Provider.get(provider.id) == null
+        Provider.count() == old(Provider.count()) - 1
     }
 
     void "test multiple providers creation with successful transaction"() {
@@ -87,7 +86,7 @@ class ProviderServiceIntegrationSpec extends Specification {
 
         then: "transaction is rolled back"
         thrown(RuntimeException)
-        Provider.count() == 0
+        Provider.count() == old(Provider.count())
     }
 
     void "test nested native transactions"() {
@@ -123,19 +122,18 @@ class ProviderServiceIntegrationSpec extends Specification {
     void "test optimistic locking in native transaction"() {
         given: "a provider with version"
         def provider = new Provider(firstName: "Version", lastName: "Test", age: 30).save(failOnError: true)
-        def originalVersion = provider.version
 
         when: "updating provider"
         provider.age = 31
         provider.save(failOnError: true)
 
         then: "version is incremented"
-        provider.version == originalVersion + 1
+        provider.version == old(provider.version) + 1
 
         and: "changes are persisted"
         def reloaded = Provider.get(provider.id)
         reloaded.age == 31
-        reloaded.version == originalVersion + 1
+        reloaded.version == old(provider.version) + 1
     }
 
     void "test transaction isolation"() {

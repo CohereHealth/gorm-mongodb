@@ -17,6 +17,7 @@ package org.grails.datastore.mapping.mongo.query;
 import com.mongodb.BasicDBObject;
 import com.mongodb.ReadConcern;
 import com.mongodb.client.AggregateIterable;
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoIterable;
@@ -46,6 +47,7 @@ import org.grails.datastore.mapping.model.types.*;
 import org.grails.datastore.mapping.mongo.AbstractMongoSession;
 import org.grails.datastore.mapping.mongo.MongoCodecSession;
 import org.grails.datastore.mapping.mongo.MongoDatastore;
+import org.grails.datastore.mapping.mongo.MongoNativeTransactionContext;
 import org.grails.datastore.mapping.mongo.config.MongoCollection;
 import org.grails.datastore.mapping.mongo.engine.MongoCodecEntityPersister;
 import org.grails.datastore.mapping.mongo.engine.MongoEntityPersister;
@@ -378,6 +380,7 @@ public class MongoQuery extends BsonQuery implements QueryArgumentsAware {
     private final EntityPersister mongoEntityPersister;
     private final ManualProjections manualProjections;
     private boolean isCodecPersister = false;
+    private ClientSession clientSession;
 
     public MongoQuery(AbstractMongoSession session, PersistentEntity entity) {
         super(session, entity);
@@ -393,6 +396,7 @@ public class MongoQuery extends BsonQuery implements QueryArgumentsAware {
         else {
             mongoEntityPersister = null;
         }
+        this.clientSession = MongoNativeTransactionContext.getNativeSession();
     }
 
     @Override
@@ -427,13 +431,16 @@ public class MongoQuery extends BsonQuery implements QueryArgumentsAware {
             }
             final Object dbObject;
             if (criteria.isEmpty()) {
-                FindIterable<Document> cursor = collection
-                        .find(createQueryObject(entity));
+                FindIterable<Document> cursor = clientSession != null ?
+                        collection.find(clientSession, createQueryObject(entity)) :
+                        collection.find(createQueryObject(entity));
 
                 dbObject = ((FindIterable<Document>) setHint(cursor)).limit(1)
                         .first();
             } else {
-                FindIterable<Document> cursor = collection.find(getMongoQuery());
+                FindIterable<Document> cursor = clientSession != null ?
+                        collection.find(clientSession, getMongoQuery()) :
+                        collection.find(getMongoQuery());
 
                 dbObject = ((FindIterable<Document>) setHint(cursor)).limit(1)
                         .first();
@@ -476,7 +483,9 @@ public class MongoQuery extends BsonQuery implements QueryArgumentsAware {
         List projectedResults = new ArrayList();
 
 
-        AggregateIterable<Document> aggregatedResults = collection.aggregate(aggregationPipeline);
+        AggregateIterable<Document> aggregatedResults = clientSession != null ?
+                collection.aggregate(clientSession, aggregationPipeline) :
+                collection.aggregate(aggregationPipeline);
         aggregatedResults = (AggregateIterable<Document>) setHint(aggregatedResults);
         final MongoCursor<Document> aggregateCursor = aggregatedResults.iterator();
 
@@ -560,7 +569,9 @@ public class MongoQuery extends BsonQuery implements QueryArgumentsAware {
             );
         }
 
-        final FindIterable<Document> iterable = collection.find(query);
+        final FindIterable<Document> iterable = clientSession != null ?
+                collection.find(clientSession, query) :
+                collection.find(query);
         if (offset > 0) {
             iterable.skip(offset);
         }

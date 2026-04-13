@@ -1,36 +1,30 @@
 package org.grails.datastore.mapping.mongo.engine
 
 import com.mongodb.client.ClientSession
+import com.mongodb.client.MongoClient
 import com.mongodb.client.MongoCollection
+import com.mongodb.client.model.FindOneAndUpdateOptions
+import com.mongodb.client.model.ReturnDocument
 import groovy.transform.CompileStatic
 import groovy.util.logging.Slf4j
 import org.bson.Document
 import org.grails.datastore.mapping.cache.TPCacheAdapterRepository
 import org.grails.datastore.mapping.core.OptimisticLockingException
+import org.grails.datastore.mapping.core.SessionImplementor
 import org.grails.datastore.mapping.engine.EntityAccess
 import org.grails.datastore.mapping.model.MappingContext
 import org.grails.datastore.mapping.model.PersistentEntity
+import org.grails.datastore.mapping.model.types.ToOne
 import org.grails.datastore.mapping.mongo.MongoCodecSession
-import org.grails.datastore.mapping.mongo.MongoTransactionObject
+import org.grails.datastore.mapping.mongo.MongoNativeTransactionContext
 import org.grails.datastore.mapping.mongo.engine.codecs.PersistentEntityCodec
-import org.grails.datastore.mapping.transactions.Transaction
+import org.grails.datastore.mapping.proxy.ProxyFactory
 import org.springframework.context.ApplicationEventPublisher
+import org.springframework.dao.DataIntegrityViolationException
 
 /**
- * Entity persister for MongoDB native transactions that executes operations immediately
- * while maintaining optimistic locking support.
- *
- * <p>This persister bypasses the standard flush mechanism and executes database operations
- * immediately when called, making it suitable for native MongoDB transactions where
- * operations need to be executed within the transaction boundary.</p>
- *
- * <p>Key features:</p>
- * <ul>
- *   <li>Immediate execution of insert/update operations</li>
- *   <li>Full optimistic locking support with version checking</li>
- *   <li>Native MongoDB transaction integration</li>
- *   <li>Automatic session management for transactional operations</li>
- * </ul>
+ * Entity persister for MongoDB native transactions that executes all operations
+ * immediately with the native ClientSession, bypassing the pending operations queue.
  *
  * @author Puneet Behl
  * @since 6.x
@@ -39,185 +33,201 @@ import org.springframework.context.ApplicationEventPublisher
 @CompileStatic
 class MongoNativeCodecEntityPersister extends MongoCodecEntityPersister {
 
-    /**
-     * Constructs a new MongoNativeCodecEntityPersister.
-     *
-     * @param mappingContext the mapping context
-     * @param entity the persistent entity
-     * @param session the MongoDB codec session
-     * @param publisher the application event publisher
-     * @param cacheAdapterRepository the cache adapter repository
-     */
     MongoNativeCodecEntityPersister(MappingContext mappingContext,
                                     PersistentEntity entity,
                                     MongoCodecSession session,
                                     ApplicationEventPublisher publisher,
                                     TPCacheAdapterRepository<Object> cacheAdapterRepository) {
         super(mappingContext, entity, session, publisher, cacheAdapterRepository)
-        log.debug("Created MongoNativeCodecEntityPersister for entity: {}", entity.name)
     }
 
-    /**
-     * Persists an entity immediately when native transactions are enabled.
-     *
-     * <p>Unlike the standard persister, this method executes the database operation
-     * immediately rather than adding it to a pending operations queue.</p>
-     *
-     * @param entity the persistent entity definition
-     * @param obj the entity instance to persist
-     * @param isInsert true if this is an insert operation, false for update
-     * @return the entity identifier
-     */
+    private ClientSession getNativeSession() {
+        return MongoNativeTransactionContext.getNativeSession()
+    }
+
+    @Override
+    protected Serializable persistEntity(PersistentEntity pe, Object obj) {
+        return persistEntity(pe, obj, getObjectIdentifier(obj) == null)
+    }
+
     @Override
     protected Serializable persistEntity(PersistentEntity entity, Object obj, boolean isInsert) {
-        log.debug("Persisting entity {} with immediate execution, isInsert: {}", entity.name, isInsert)
+        ProxyFactory proxyFactory = getProxyFactory()
+        obj = proxyFactory.unwrap(obj)
 
-        Serializable id = super.persistEntity(entity, obj, isInsert)
+        Serializable id = getObjectIdentifier(obj)
+        SessionImplementor<Object> si = (SessionImplementor<Object>) session
 
-        // Always execute immediately since this persister is only used for native transactions
+        final boolean idIsNull = id == null
+        boolean isUpdate = !idIsNull && !isInsert
+        boolean assignedId = isAssignedId(persistentEntity)
+        if (isNotUpdateForAssignedId(persistentEntity, obj, isUpdate, assignedId, si)) {
+            isUpdate = false
+        }
+        if (isUpdate && !getSession().isDirty(obj)) {
+            return id
+        }
+
+        final EntityAccess entityAccess = createEntityAccess(entity, obj)
+        boolean isAssigned = isAssignedId(entity)
+        if (!isAssigned && idIsNull) {
+            id = generateIdentifier(entity)
+            if (id != null) {
+                entityAccess.setIdentifier(id)
+            } else {
+                throw new DataIntegrityViolationException("Failed to generate a valid identifier for entity [$obj]")
+            }
+        } else if (idIsNull) {
+            throw new DataIntegrityViolationException("Entity [$obj] has null identifier when identifier strategy is manual assignment. Assign an appropriate identifier before persisting.")
+        } else if (isAssigned && !si.isStateless(entity)) {
+            isUpdate = mongoSession.contains(obj)
+        }
+
+        processAssociations(mongoSession, entity, entityAccess, obj, proxyFactory, isUpdate)
+
         MongoCollection collection = getMongoCollection(entity)
-        if (!isInsert) {
-            log.debug("Executing immediate update for entity {} with id: {}", entity.name, id)
-            executeUpdate(entity, obj, id, collection)
+        ClientSession clientSession = getNativeSession()
+
+        if (!isUpdate) {
+            if (!cancelInsert(entity, entityAccess)) {
+                if (clientSession) {
+                    collection.insertOne(clientSession, obj)
+                } else {
+                    collection.insertOne(obj)
+                }
+                updateCaches(entity, obj, id)
+                firePostInsertEvent(entity, entityAccess)
+            }
         } else {
-            log.debug("Executing immediate insert for entity {} with id: {}", entity.name, id)
-            executeInsert(entity, obj, id, collection)
+            if (!cancelUpdate(entity, entityAccess)) {
+                executeUpdate(entity, obj, id, collection, entityAccess, clientSession)
+                updateCaches(entity, obj, id)
+                firePostUpdateEvent(entity, entityAccess)
+            }
         }
 
         return id
     }
 
-    /**
-     * Executes an insert operation immediately.
-     *
-     * @param entity the persistent entity definition
-     * @param obj the entity instance to insert
-     * @param id the entity identifier
-     * @param collection the MongoDB collection
-     */
-    private void executeInsert(PersistentEntity entity, Object obj, Serializable id, MongoCollection collection) {
-        Transaction tx = mongoSession.getTransaction()
-        if (tx instanceof MongoTransactionObject) {
-            ClientSession session = (ClientSession) mongoSession.getTransaction()?.nativeTransaction
+    @Override
+    protected Object retrieveEntity(PersistentEntity pe, Serializable key) {
+        Object o = getFromTPCache(pe, key)
+        if (o != null) return o
+        if (cancelLoad(pe, null)) return null
 
-            if (session instanceof ClientSession) {
-                log.debug("Executing transactional insert for entity {} with session", entity.name)
-                collection.insertOne(session, obj)
-            }
-        } else {
-            log.debug("Executing non-transactional insert for entity {}", entity.name)
-            collection.insertOne(obj)
+        MongoCollection collection = getMongoCollection(pe)
+        Document idQuery = createIdQuery(key)
+        ClientSession session = getNativeSession()
+
+        o = session ?
+            collection.find(session, idQuery, pe.javaClass).limit(1).first() :
+            collection.find(idQuery, pe.javaClass).limit(1).first()
+
+        if (o != null && !cancelLoad(pe, createEntityAccess(pe, o))) {
+            firePostLoadEvent(pe, createEntityAccess(pe, o))
+            return o
         }
-
-        firePostInsertEvent(entity, createEntityAccess(entity, obj))
+        return null
     }
 
-    /**
-     * Executes an update operation immediately, with optimistic locking support if enabled.
-     *
-     * @param entity the persistent entity definition
-     * @param obj the entity instance to update
-     * @param id the entity identifier
-     * @param collection the MongoDB collection
-     */
-    private void executeUpdate(PersistentEntity entity, Object obj, Serializable id, MongoCollection collection) {
-        EntityAccess entityAccess = createEntityAccess(entity, obj)
-        ClientSession session = (ClientSession) mongoSession.getTransaction()?.nativeTransaction
+    @Override
+    protected void deleteEntity(PersistentEntity pe, Object obj) {
+        def proxyFactory = getProxyFactory()
+        Serializable id
+        if (proxyFactory.isProxy(obj)) {
+            id = proxyFactory.getIdentifier(obj)
+            obj = proxyFactory.unwrap(obj)
+        } else {
+            id = getObjectIdentifier(obj)
+        }
+        if (id == null) return
 
+        def entityAccess = createEntityAccess(pe, obj)
+        if (cancelDelete(pe, entityAccess)) return
+
+        MongoCollection collection = getMongoCollection(pe)
+        ClientSession session = getNativeSession()
+        Document idQuery = createIdQuery(id)
+
+        if (session) {
+            collection.deleteOne(session, idQuery)
+        } else {
+            collection.deleteOne(idQuery)
+        }
+
+        mongoSession.clear(obj)
+        firePostDeleteEvent(pe, entityAccess)
+
+        for (association in pe.associations) {
+            if (association.isOwningSide() && association.doesCascade(javax.persistence.CascadeType.REMOVE)
+                    && !association.isEmbedded() && !(association instanceof org.grails.datastore.mapping.model.types.Basic)) {
+                def v = entityAccess.getProperty(association.name)
+                if (v == null) continue
+                if (association instanceof ToOne) {
+                    if (association.isBidirectional() && association.isCircular()) continue
+                    mongoSession.delete(v)
+                } else {
+                    mongoSession.delete((Iterable) v)
+                }
+            }
+        }
+    }
+
+    @Override
+    Serializable generateIdentifier(final PersistentEntity persistentEntity) {
+        if (hasNumericalIdentifier) {
+            final String collectionName = getCollectionName(persistentEntity)
+            final MongoClient client = (MongoClient) mongoSession.nativeInterface
+            final MongoCollection<Document> dbCollection = client
+                    .getDatabase(mongoSession.getDatabase(persistentEntity))
+                    .getCollection("${collectionName}${NEXT_ID_SUFFIX}")
+
+            ClientSession session = getNativeSession()
+            def options = new FindOneAndUpdateOptions().upsert(true).returnDocument(ReturnDocument.AFTER)
+            int attempts = 0
+
+            while (true) {
+                Document result = session ?
+                    dbCollection.findOneAndUpdate(session, new Document(MONGO_ID_FIELD, collectionName), new Document(INC_OPERATOR, new Document(NEXT_ID, 1L)), options) :
+                    dbCollection.findOneAndUpdate(new Document(MONGO_ID_FIELD, collectionName), new Document(INC_OPERATOR, new Document(NEXT_ID, 1L)), options)
+
+                if (result != null) {
+                    return result.getLong(NEXT_ID)
+                }
+                if (++attempts > 3) {
+                    throw new org.grails.datastore.mapping.core.IdentityGenerationException(
+                        "Unable to generate identity for [$persistentEntity.name] using findAndModify after 3 attempts")
+                }
+            }
+        }
+        return super.generateIdentifier(persistentEntity)
+    }
+
+    private void executeUpdate(PersistentEntity entity, Object obj, Serializable id,
+                               MongoCollection collection, EntityAccess entityAccess, ClientSession session) {
+        def updateDoc = encodeUpdate(obj, entityAccess)
+        if (!updateDoc) return
+
+        Document query = new Document("_id", id)
         if (entity.isVersioned()) {
-            log.debug("Executing versioned update for entity {} with id: {}", entity.name, id)
-            executeVersionedUpdate(entity, obj, id, collection, entityAccess, session)
-        } else {
-            log.debug("Executing simple update for entity {} with id: {}", entity.name, id)
-            executeSimpleUpdate(entity, obj, id, collection, entityAccess, session)
+            // encodeUpdate already incremented the version and included it in $set
+            // Use the post-increment version minus 1 for the optimistic lock query
+            def newVersion = entityAccess.getProperty(entity.version.name)
+            def currentVersion = ((Number) newVersion).longValue() - 1
+            query.append("version", currentVersion)
         }
 
-        firePostUpdateEvent(entity, entityAccess)
-    }
+        def result = session ?
+            collection.updateOne(session, query, updateDoc) :
+            collection.updateOne(query, updateDoc)
 
-    /**
-     * Executes a versioned update with optimistic locking.
-     *
-     * <p>This method includes the current version in the query to ensure the document
-     * hasn't been modified by another process. If no document matches (matchedCount == 0),
-     * an OptimisticLockingException is thrown.</p>
-     *
-     * @param entity the persistent entity definition
-     * @param obj the entity instance to update
-     * @param id the entity identifier
-     * @param collection the MongoDB collection
-     * @param entityAccess the entity access helper
-     * @param session the MongoDB client session (may be null)
-     */
-    private void executeVersionedUpdate(PersistentEntity entity, Object obj, Serializable id, MongoCollection collection, EntityAccess entityAccess, ClientSession session) {
-        def currentVersion = entityAccess.getProperty(entity.version.name)
-        def updateDoc = encodeUpdate(obj, entityAccess)
-
-        log.debug("Executing versioned update for entity {} with version: {}", entity.name, currentVersion)
-
-        if (updateDoc) {
-            def query = new Document("_id", id).append("version", currentVersion)
-            def update = new Document("\$set", updateDoc).append("\$inc", new Document("version", 1))
-
-            def result = session ?
-                    collection.updateOne(session, query, update) :
-                    collection.updateOne(query, update)
-
-            log.debug("Versioned update result - matched: {}, modified: {}", result.matchedCount, result.modifiedCount)
-
-            if (result.matchedCount == 0) {
-                log.warn("Optimistic locking failure for entity {} with id: {} and version: {}", entity.name, id, currentVersion)
-                throw new OptimisticLockingException(entity, obj)
-            }
-
-            // Update version in memory
-            entityAccess.setProperty(entity.version.name, ((Integer) currentVersion) + 1)
-            log.debug("Updated entity {} version to: {}", entity.name, ((Integer) currentVersion) + 1)
+        if (entity.isVersioned() && result.matchedCount == 0) {
+            throw new OptimisticLockingException(entity, obj)
         }
     }
 
-    /**
-     * Executes a simple update without version checking.
-     *
-     * @param entity the persistent entity definition
-     * @param obj the entity instance to update
-     * @param id the entity identifier
-     * @param collection the MongoDB collection
-     * @param entityAccess the entity access helper
-     * @param session the MongoDB client session (may be null)
-     */
-    private void executeSimpleUpdate(PersistentEntity entity, Object obj, Serializable id, MongoCollection collection, EntityAccess entityAccess, ClientSession session) {
-        def updateDoc = encodeUpdate(obj, entityAccess)
-
-        if (updateDoc) {
-            def query = new Document("_id", id)
-            def update = new Document("\$set", updateDoc)
-
-            if (session) {
-                log.debug("Executing transactional simple update for entity {} with session", entity.name)
-                collection.updateOne(session, query, update)
-            } else {
-                log.debug("Executing non-transactional simple update for entity {}", entity.name)
-                collection.updateOne(query, update)
-            }
-        }
-    }
-
-    /**
-     * Encodes the entity changes into a MongoDB update document.
-     *
-     * @param obj the entity instance
-     * @param entityAccess the entity access helper
-     * @return the MongoDB update document containing only changed fields
-     */
     private Document encodeUpdate(Object obj, EntityAccess entityAccess) {
         PersistentEntityCodec codec = (PersistentEntityCodec) mongoDatastore.codecRegistry.get(obj.getClass())
-        Document updateDoc = codec.encodeUpdate(obj, entityAccess)
-
-        if (log.isTraceEnabled()) {
-            log.trace("Encoded update document for {}: {}", obj.getClass().simpleName, updateDoc)
-        }
-
-        return updateDoc
+        return codec.encodeUpdate(obj, entityAccess)
     }
 }

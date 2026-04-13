@@ -252,7 +252,7 @@ class MongoCodecEntityPersister extends ThirdPartyCacheEntityPersister<Object> {
         return ASSIGNED_IDENTIFIER_MAPPING.equals(mapping?.generator)
     }
 
-    private boolean isNotUpdateForAssignedId(PersistentEntity persistentEntity, Object obj, boolean update, boolean assignedId, SessionImplementor<Object> si) {
+    protected boolean isNotUpdateForAssignedId(PersistentEntity persistentEntity, Object obj, boolean update, boolean assignedId, SessionImplementor<Object> si) {
         return assignedId && update && !si.isStateless(persistentEntity) && !session.contains(obj)
     }
 
@@ -528,6 +528,7 @@ class MongoCodecEntityPersister extends ThirdPartyCacheEntityPersister<Object> {
                 .getDatabase(database)
                 .getCollection(collection)
                 .withDocumentClass(pe.javaClass)
+                .withCodecRegistry(mongoDatastore.codecRegistry)
         return mongoCollection
     }
 

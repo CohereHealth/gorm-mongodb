@@ -71,16 +71,6 @@ class MongoCodecSession extends AbstractMongoSession {
     protected static final int DEFAULT_BULK_BATCH_SIZE = 1000
 
     protected MongoCodecEntityPersister getOrCreatePersister(Class type) {
-        // Don't cache persisters when native transactions might be active
-        if (MongoNativeTransactionContext.hasNativeSession()) {
-            def context = getDocumentMappingContext()
-            def entity = context.getPersistentEntity(type.name)
-            if (entity) {
-                return new MongoNativeCodecEntityPersister(context, entity, this, publisher, cacheAdapterRepository)
-            }
-            throw new IllegalArgumentException("Type [$type] is not an entity")
-        }
-        
         return mongoCodecEntityPersisterMap.computeIfAbsent(type) { Class clazz ->
             def context = getDocumentMappingContext()
             def entity = context.getPersistentEntity(clazz.name)
@@ -320,29 +310,12 @@ class MongoCodecSession extends AbstractMongoSession {
 
     @Override
     protected Transaction beginTransactionInternal() {
-        if (mongoDatastore.isNativeTransactionsEnabled() || MongoNativeTransactionContext.hasNativeSession()) {
-            final ClientSession clientSession = getNativeInterface().startSession()
-            return new MongoTransactionObject(new MongoSessionHolder(clientSession))
-        }
         return new SessionOnlyTransaction<MongoClient>(getNativeInterface(), this);
     }
 
     @Override
     protected MongoCodecEntityPersister createPersister(Class cls, MappingContext mappingContext) {
-        // Check for active native transaction, not just global flag
-        if (hasActiveNativeTransaction()) {
-            return new MongoNativeCodecEntityPersister(mappingContext, mappingContext.getPersistentEntity(cls.name), this, publisher, cacheAdapterRepository)
-        }
         return getOrCreatePersister(cls)
-    }
-
-    private boolean hasActiveNativeTransaction() {
-        try {
-            Transaction currentTx = getTransaction()
-            return currentTx?.nativeTransaction instanceof ClientSession
-        } catch (Exception e) {
-            return false
-        }
     }
 
     @Override

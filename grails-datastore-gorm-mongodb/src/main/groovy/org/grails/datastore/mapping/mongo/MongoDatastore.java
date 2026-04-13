@@ -1179,7 +1179,15 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
      */
     public <T> T withNativeTransaction(Closure<T> callable) {
         if (MongoNativeTransactionContext.hasNativeSession()) {
-            return callable.call(MongoNativeTransactionContext.getNativeSession());
+            com.mongodb.client.ClientSession existing = MongoNativeTransactionContext.getNativeSession();
+            try {
+                return callable.call(existing);
+            } catch (Exception e) {
+                if (existing.hasActiveTransaction()) {
+                    existing.abortTransaction();
+                }
+                throw e;
+            }
         }
 
         com.mongodb.client.ClientSession session = null;

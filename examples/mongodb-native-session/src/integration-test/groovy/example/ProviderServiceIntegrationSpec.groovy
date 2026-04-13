@@ -12,6 +12,26 @@ class ProviderServiceIntegrationSpec extends Specification {
 
     ProviderService providerService
 
+    /**
+     * Helper to check database state outside the current transaction.
+     * Temporarily pops the native session to query committed state.
+     */
+    def checkOutsideTransaction(Closure check) {
+        def result = null
+        // Pop the native session temporarily to query outside transaction
+        if (MongoNativeTransactionContext.hasNativeSession()) {
+            def session = MongoNativeTransactionContext.popNativeSession()
+            try {
+                result = check.call()
+            } finally {
+                MongoNativeTransactionContext.pushNativeSession(session)
+            }
+        } else {
+            result = check.call()
+        }
+        return result
+    }
+
     void "test create provider with native transaction"() {
         when: "creating a provider with native transaction"
         def provider = providerService.createProviderWithNativeTransaction("John", "Doe", 30)
@@ -87,7 +107,7 @@ class ProviderServiceIntegrationSpec extends Specification {
 
         then: "transaction is rolled back"
         thrown(RuntimeException)
-        Provider.count() == 0
+        checkOutsideTransaction { Provider.count() } == 0
     }
 
     void "test nested native transactions"() {
@@ -150,6 +170,6 @@ class ProviderServiceIntegrationSpec extends Specification {
         }
 
         then: "provider is not persisted due to rollback"
-        Provider.findByFirstName("Isolated") == null
+        checkOutsideTransaction { Provider.findByFirstName("Isolated") } == null
     }
 }

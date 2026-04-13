@@ -36,11 +36,9 @@ class NativeRollbackInterceptor implements IMethodInterceptor {
             MongoNativeTransactionContext.pushNativeSession(session)
 
             // Bind MongoSessionHolder so getCurrentSession() works and doGetTransaction() reuses it
-            def sessionHolder = new MongoSessionHolder(datastore.connect(), session)
+            def gormSession = datastore.connect()
+            def sessionHolder = new MongoSessionHolder(gormSession, session)
             TransactionSynchronizationManager.bindResource(datastore, sessionHolder)
-
-            // Connect a GORM session (will be MongoNativeCodecSession)
-//            datastore.connect()
 
             invocation.proceed()
         } finally {

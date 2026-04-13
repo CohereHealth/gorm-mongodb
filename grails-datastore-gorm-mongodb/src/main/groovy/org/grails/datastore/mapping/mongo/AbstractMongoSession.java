@@ -58,7 +58,7 @@ public abstract class AbstractMongoSession extends AbstractSession<MongoClient> 
     }
 
     @Override
-    public boolean hasTransaction() {
+    public boolean  hasTransaction() {
         // Check for native MongoDB transactions (MongoDB 4.0+)
         if (MongoNativeTransactionContext.isInNativeTransaction()) {
             return true;

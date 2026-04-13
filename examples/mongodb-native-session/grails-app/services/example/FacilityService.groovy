@@ -2,12 +2,11 @@ package example
 
 import grails.gorm.transactions.Transactional
 import groovy.util.logging.Slf4j
+import org.bson.Document
 
 @Slf4j
 @Transactional
 class FacilityService {
-
-    // ---- Facility CRUD ----
 
     def createFacilityWithAddress(String name, String npi, String type, Integer beds, Map addressData) {
         return Facility.withNativeTransaction { session ->
@@ -25,8 +24,6 @@ class FacilityService {
             facility.save(failOnError: true)
         }
     }
-
-    // ---- Facility Criteria Queries ----
 
     def findFacilitiesByCity(String city) {
         return Facility.withNativeTransaction { session ->
@@ -92,14 +89,12 @@ class FacilityService {
         }
     }
 
-    // ---- Facility Aggregation ----
-
     def aggregateFacilitiesByType() {
         return Facility.withNativeTransaction { session ->
             Facility.aggregate([
                 ['$group': [_id: '$facilityType', totalBeds: ['$sum': '$bedCount'], count: ['$sum': 1]]],
                 ['$sort': [totalBeds: -1]]
-            ])
+            ], Document)
         }
     }
 
@@ -108,11 +103,9 @@ class FacilityService {
             Facility.aggregate([
                 ['$group': [_id: '$address.state', totalBeds: ['$sum': '$bedCount'], count: ['$sum': 1]]],
                 ['$sort': [totalBeds: -1]]
-            ])
+            ], Document)
         }
     }
-
-    // ---- Diagnosis Criteria Queries ----
 
     def findDiagnosesByCategory(String category) {
         return Diagnosis.withNativeTransaction { session ->
@@ -147,14 +140,12 @@ class FacilityService {
         }
     }
 
-    // ---- Diagnosis Aggregation ----
-
     def aggregateDiagnosesByCategory() {
         return Diagnosis.withNativeTransaction { session ->
             Diagnosis.aggregate([
                 ['$group': [_id: '$category', count: ['$sum': 1]]],
                 ['$sort': [count: -1]]
-            ])
+            ], Document)
         }
     }
 
@@ -163,11 +154,9 @@ class FacilityService {
             Diagnosis.aggregate([
                 ['$match': [severity: severity]],
                 ['$group': [_id: '$category', count: ['$sum': 1]]]
-            ])
+            ], Document)
         }
     }
-
-    // ---- Procedure Criteria + Association Queries ----
 
     def findProceduresByDiagnosis(Diagnosis diagnosis) {
         return Procedure.withNativeTransaction { session ->
@@ -190,11 +179,9 @@ class FacilityService {
             Procedure.aggregate([
                 ['$project': [name: 1, cost: 1, _id: 0]],
                 ['$sort': [cost: 1]]
-            ])
+            ], Document)
         }
     }
-
-    // ---- Diagnosis + Procedure Association CRUD ----
 
     def createDiagnosisWithProcedures(Map diagnosisData, List<Map> procedureDataList) {
         return Diagnosis.withNativeTransaction { session ->
@@ -213,5 +200,4 @@ class FacilityService {
             diagnosis.save(failOnError: true)
         }
     }
-
 }

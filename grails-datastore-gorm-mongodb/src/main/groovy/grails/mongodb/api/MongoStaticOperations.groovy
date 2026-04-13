@@ -132,6 +132,43 @@ interface MongoStaticOperations<D> extends GormStaticOperations<D> {
      * @return A mongodb result list
      */
     List<D> aggregate(List pipeline, Function<AggregateIterable, AggregateIterable> doWithAggregate, ReadPreference readPreference)
+
+    /**
+     * Execute a MongoDB aggregation pipeline and return results as the given type.
+     * When {@code resultType} is {@link Document} or {@link Map}, returns raw BSON documents
+     * without entity decoding — suitable for {@code $group}, {@code $project}, and other
+     * pipelines that produce non-entity shaped documents.
+     * For other types, maps each result document's fields to the target class properties.
+     *
+     * @param pipeline The aggregation pipeline
+     * @param resultType The class to return results as ({@link Document} for raw, or a POJO/Groovy class)
+     * @return A list of results of the given type
+     */
+    public <T> List<T> aggregate(List pipeline, Class<T> resultType)
+
+    /**
+     * Execute a MongoDB aggregation pipeline and return results as the given type,
+     * with a callback to customize the {@link AggregateIterable}.
+     *
+     * @param pipeline The aggregation pipeline
+     * @param resultType The class to return results as
+     * @param doWithAggregate A callback to modify the aggregate iterable
+     * @return A list of results of the given type
+     */
+    public <T> List<T> aggregate(List pipeline, Class<T> resultType, Function<AggregateIterable, AggregateIterable> doWithAggregate)
+
+    /**
+     * Execute a MongoDB aggregation pipeline and return results as the given type,
+     * with a callback and read preference.
+     *
+     * @param pipeline The aggregation pipeline
+     * @param resultType The class to return results as
+     * @param doWithAggregate A callback to modify the aggregate iterable
+     * @param readPreference The read preference to use
+     * @return A list of results of the given type
+     */
+    public <T> List<T> aggregate(List pipeline, Class<T> resultType, Function<AggregateIterable, AggregateIterable> doWithAggregate, ReadPreference readPreference)
+
     /**
      * Search for entities using the given query
      *

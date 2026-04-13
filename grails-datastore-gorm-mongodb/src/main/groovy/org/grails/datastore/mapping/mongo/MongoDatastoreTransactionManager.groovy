@@ -18,10 +18,34 @@ import org.springframework.transaction.support.DefaultTransactionStatus
 import org.springframework.transaction.support.TransactionSynchronizationManager
 
 /**
- * Flexible MongoDB transaction manager that dynamically supports native transactions.
- * Extends DatastoreTransactionManager with native transaction capabilities when:
- * - Native transactions are globally enabled, OR
- * - Currently in a withNativeTransaction closure context
+ * Spring {@link org.springframework.transaction.PlatformTransactionManager} that adds
+ * native MongoDB transaction support on top of the standard GORM
+ * {@link DatastoreTransactionManager}.
+ *
+ * <p>Each lifecycle method ({@code doGetTransaction}, {@code doBegin}, {@code doCommit},
+ * {@code doRollback}, etc.) checks whether the current context requires a native
+ * transaction and delegates to a native-specific implementation when it does,
+ * falling back to the parent's Spring-managed behaviour otherwise.</p>
+ *
+ * <h3>Why every parent method needs an override</h3>
+ * <p>{@link MongoTransactionObject} does not extend the core
+ * {@link org.grails.datastore.mapping.transactions.TransactionObject}, and
+ * {@link MongoSessionHolder} carries a {@code ClientSession} that the parent
+ * knows nothing about. The parent methods cast unconditionally to
+ * {@code TransactionObject}, so without overrides every suspend, resume,
+ * rollback-only, and cleanup call would throw a {@code ClassCastException}.</p>
+ *
+ * <h3>Existing-transaction detection</h3>
+ * <p>{@link #isExistingTransaction} checks {@code ClientSession.hasActiveTransaction()}
+ * so that Spring's {@code AbstractPlatformTransactionManager} participates in an
+ * already-running native transaction instead of attempting a second
+ * {@code startTransaction}, which the MongoDB driver rejects with
+ * {@code IllegalStateException("Transaction already in progress")}.</p>
+ *
+ * @see MongoTransactionObject
+ * @see MongoSessionHolder
+ * @see MongoNativeTransactionContext
+ * @since 6.x
  */
 @Slf4j
 @CompileStatic

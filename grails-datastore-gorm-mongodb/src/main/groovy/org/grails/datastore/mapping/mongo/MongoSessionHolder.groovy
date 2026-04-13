@@ -7,8 +7,24 @@ import org.grails.datastore.mapping.transactions.SessionHolder
 import org.grails.datastore.mapping.transactions.Transaction
 
 /**
- * MongoDB-specific session holder that manages both GORM Session and MongoDB ClientSession.
- * Extends SessionHolder to remain compatible with DatastoreUtils and the core transaction infrastructure.
+ * Holds both a GORM {@link Session} and a MongoDB {@link ClientSession} for the duration
+ * of a native transaction.
+ *
+ * <p>Extends {@link SessionHolder} rather than {@code ResourceHolderSupport} so that the
+ * GORM core infrastructure ({@code DatastoreUtils.doGetSession},
+ * {@code AbstractDatastore.getCurrentSession}) can cast the resource bound to
+ * {@code TransactionSynchronizationManager} without a {@code ClassCastException}.
+ * The GORM session satisfies the core's need for a session reference, while the
+ * {@code ClientSession} is carried alongside for native transaction operations.</p>
+ *
+ * <p>The {@link #getTransaction()} method returns the native transaction if one has been
+ * set, falling back to the GORM session's transaction otherwise. This allows the
+ * transaction manager and session to retrieve the correct transaction object regardless
+ * of whether the current context is native or Spring-managed.</p>
+ *
+ * @see MongoDatastoreTransactionManager
+ * @see MongoNativeCodecSession
+ * @since 6.x
  */
 @CompileStatic
 class MongoSessionHolder extends SessionHolder {

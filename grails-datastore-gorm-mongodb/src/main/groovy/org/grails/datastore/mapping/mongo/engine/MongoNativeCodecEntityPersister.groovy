@@ -23,11 +23,45 @@ import org.springframework.context.ApplicationEventPublisher
 import org.springframework.dao.DataIntegrityViolationException
 
 /**
- * Entity persister for MongoDB native transactions that executes all operations
- * immediately with the native ClientSession, bypassing the pending operations queue.
+ * Entity persister that executes all MongoDB operations immediately within a native
+ * {@link ClientSession}, bypassing the pending-operations queue used by the parent
+ * {@link MongoCodecEntityPersister}.
+ *
+ * <h3>Why a separate persister is needed</h3>
+ * <p>The parent persister queues inserts, updates, and deletes as
+ * {@code PendingInsert}/{@code PendingUpdate}/{@code PendingDelete} objects that are
+ * executed later during {@code session.flush()}. In a native MongoDB transaction every
+ * operation must be sent to the server through the same {@code ClientSession} before
+ * commit, and the flush-based model does not pass the session to the driver. This
+ * persister removes that indirection and calls the driver directly.</p>
+ *
+ * <h3>Key differences from the parent</h3>
+ * <ul>
+ *   <li><strong>persistEntity</strong> — executes {@code collection.insertOne(session, obj)}
+ *       or {@code collection.updateOne(session, query, update)} inline instead of
+ *       creating pending operation adapters. The {@code isPendingAlready} guard and
+ *       {@code registerPending} call are removed because there is no queue to protect
+ *       against double-scheduling; without this removal a second {@code save()} on the
+ *       same object would be silently skipped.</li>
+ *   <li><strong>Single-arg persistEntity</strong> — overridden to derive {@code isInsert}
+ *       from whether the object already has an identifier. The parent hardcodes
+ *       {@code isInsert = true}, which causes a duplicate-key error when an existing
+ *       entity is saved a second time.</li>
+ *   <li><strong>executeUpdate</strong> — passes the codec's {@code encodeUpdate} output
+ *       directly to {@code updateOne}. The codec already produces a document containing
+ *       {@code $set} with the incremented version; wrapping it in another {@code $set}
+ *       or adding a separate {@code $inc} would produce an invalid update document
+ *       rejected by the server.</li>
+ *   <li><strong>retrieveEntity / deleteEntity / generateIdentifier</strong> — each
+ *       overridden to pass the {@code ClientSession} to the corresponding driver call
+ *       so that reads, deletes, and ID generation participate in the transaction.</li>
+ * </ul>
  *
  * @author Puneet Behl
  * @since 6.x
+ * @see MongoCodecEntityPersister
+ * @see org.grails.datastore.mapping.mongo.MongoNativeCodecSession
+ * @see org.grails.datastore.mapping.mongo.MongoNativeTransactionContext
  */
 @Slf4j
 @CompileStatic

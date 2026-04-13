@@ -27,6 +27,7 @@ import org.grails.datastore.mapping.engine.internal.MappingUtils
 import org.grails.datastore.mapping.mongo.AbstractMongoSession
 import org.grails.datastore.mapping.mongo.MongoCodecSession
 import org.grails.datastore.mapping.mongo.MongoDatastore
+import org.grails.datastore.mapping.mongo.MongoNativeTransactionContext
 import org.grails.datastore.mapping.mongo.query.MongoQuery
 import org.grails.datastore.mapping.multitenancy.MultiTenancySettings
 import org.springframework.transaction.PlatformTransactionManager
@@ -50,9 +51,12 @@ class MongoStaticApi<D> extends GormStaticApi<D> implements MongoAllOperations<D
         withSession { AbstractMongoSession session ->
             def entity = session.mappingContext.getPersistentEntity(persistentClass.name)
             filter = wrapFilterWithMultiTenancy(filter)
-            return session.getCollection(entity)
+            def collection = session.getCollection(entity)
                     .withDocumentClass(persistentClass)
-                    .find(filter)
+            def clientSession = MongoNativeTransactionContext.getNativeSession()
+            return clientSession != null ?
+                collection.find(clientSession, filter) :
+                collection.find(filter)
         }
     }
 
@@ -63,11 +67,17 @@ class MongoStaticApi<D> extends GormStaticApi<D> implements MongoAllOperations<D
             filter = wrapFilterWithMultiTenancy(filter)
             MongoCollection<D> mongoCollection = session.getCollection(entity)
                                                         .withDocumentClass(persistentClass)
-            D result = options ? mongoCollection
-                                    .findOneAndDelete(filter, options) :
-                                mongoCollection
-                                    .findOneAndDelete(filter)
-
+            def clientSession = MongoNativeTransactionContext.getNativeSession()
+            D result
+            if (clientSession != null) {
+                result = options ?
+                    mongoCollection.findOneAndDelete(clientSession, filter, options) :
+                    mongoCollection.findOneAndDelete(clientSession, filter)
+            } else {
+                result = options ?
+                    mongoCollection.findOneAndDelete(filter, options) :
+                    mongoCollection.findOneAndDelete(filter)
+            }
             return result
         }
     }
@@ -76,8 +86,11 @@ class MongoStaticApi<D> extends GormStaticApi<D> implements MongoAllOperations<D
         withSession { AbstractMongoSession session ->
             def entity = session.mappingContext.getPersistentEntity(persistentClass.name)
             filter = wrapFilterWithMultiTenancy(filter)
-            return session.getCollection(entity)
-                    .countDocuments(filter)
+            def collection = session.getCollection(entity)
+            def clientSession = MongoNativeTransactionContext.getNativeSession()
+            return clientSession != null ?
+                collection.countDocuments(clientSession, filter) :
+                collection.countDocuments(filter)
         }
     }
 
@@ -180,7 +193,10 @@ class MongoStaticApi<D> extends GormStaticApi<D> implements MongoAllOperations<D
             }
 
             List<? extends Bson> newPipeline = preparePipeline(pipeline)
-            AggregateIterable aggregateIterable = mongoCollection.aggregate(newPipeline)
+            def clientSession = MongoNativeTransactionContext.getNativeSession()
+            AggregateIterable aggregateIterable = clientSession != null ?
+                mongoCollection.aggregate(clientSession, newPipeline) :
+                mongoCollection.aggregate(newPipeline)
             if (doWithAggregate != null) {
                 aggregateIterable = doWithAggregate.apply(aggregateIterable)
             }
@@ -196,7 +212,10 @@ class MongoStaticApi<D> extends GormStaticApi<D> implements MongoAllOperations<D
             List<? extends Bson> newPipeline = preparePipeline(pipeline)
             def mongoCollection = session.getCollection(persistentEntity)
                     .withReadPreference(readPreference)
-            def aggregateIterable = mongoCollection.aggregate(newPipeline)
+            def clientSession = MongoNativeTransactionContext.getNativeSession()
+            def aggregateIterable = clientSession != null ?
+                mongoCollection.aggregate(clientSession, newPipeline) :
+                mongoCollection.aggregate(newPipeline)
             if (doWithAggregate != null) {
                 aggregateIterable = doWithAggregate.apply(aggregateIterable)
             }
@@ -223,7 +242,10 @@ class MongoStaticApi<D> extends GormStaticApi<D> implements MongoAllOperations<D
                 search = Filters.text(query)
             }
             search = wrapFilterWithMultiTenancy(search)
-            FindIterable cursor = coll.find(search)
+            def clientSession = MongoNativeTransactionContext.getNativeSession()
+            FindIterable cursor = clientSession != null ?
+                coll.find(clientSession, search) :
+                coll.find(search)
 
             int offset = options.offset instanceof Number ? ((Number)options.offset).intValue() : 0
             int max = options.max instanceof Number ? ((Number)options.max).intValue() : -1
@@ -258,7 +280,10 @@ class MongoStaticApi<D> extends GormStaticApi<D> implements MongoAllOperations<D
 
             def score = Projections.metaTextScore("score")
             search = wrapFilterWithMultiTenancy(search)
-            FindIterable cursor = coll.find(search)
+            def clientSession = MongoNativeTransactionContext.getNativeSession()
+            FindIterable cursor = (clientSession != null ?
+                coll.find(clientSession, search) :
+                coll.find(search))
                                             .projection(score)
                                             .sort(score)
                                             .limit(limit)

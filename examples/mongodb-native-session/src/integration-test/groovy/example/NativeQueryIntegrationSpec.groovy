@@ -332,15 +332,11 @@ class NativeQueryIntegrationSpec extends Specification {
         facilityService.removeProcedureFromDiagnosis(diagnosis, proc)
 
         then:
-        Procedure.countByDiagnosis(diagnosis) == 0
+        Procedure.countByDiagnosis(diagnosis) == old(Procedure.countByDiagnosis(diagnosis)) - 1
         Diagnosis.get(diagnosis.id) != null
     }
 
     void "test rollback reverts diagnosis and procedures"() {
-        given:
-        def initialDiagCount = Diagnosis.count()
-        def initialProcCount = Procedure.count()
-
         when:
         try {
             Diagnosis.withNativeTransaction { session ->
@@ -354,14 +350,11 @@ class NativeQueryIntegrationSpec extends Specification {
         }
 
         then:
-        Diagnosis.count() == initialDiagCount
-        Procedure.count() == initialProcCount
+        Diagnosis.count() == old(Diagnosis.count())
+        Procedure.count() == old(Procedure.count())
     }
 
     void "test rollback reverts facility with embedded address"() {
-        given:
-        def initialCount = Facility.count()
-
         when:
         try {
             Facility.withNativeTransaction { session ->
@@ -374,7 +367,7 @@ class NativeQueryIntegrationSpec extends Specification {
         }
 
         then:
-        Facility.count() == initialCount
+        Facility.count() == old(Facility.count())
         Facility.findByNpi('NPI099') == null
     }
 }

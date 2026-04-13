@@ -55,15 +55,14 @@ class PatientServiceIntegrationSpec extends Specification {
     void "test delete patient"() {
         given:
         def patient = new Patient(firstName: "Bob", lastName: "Johnson", age: 35).save(flush: true, failOnError: true)
-        def patientId = patient.id
 
         when:
-        def result = patientService.deletePatient(patientId)
+        def result = patientService.deletePatient(patient.id)
 
         then:
         result == true
-        Patient.get(patientId) == null
-        Patient.count() == 0
+        Patient.get(patient.id) == null
+        Patient.count() == old(Patient.count()) - 1
     }
 
     void "test create multiple patients"() {
@@ -95,25 +94,24 @@ class PatientServiceIntegrationSpec extends Specification {
 
         then:
         thrown(RuntimeException)
-        Patient.count() == 0
+        Patient.count() == old(Patient.count())
     }
 
     void "test optimistic locking"() {
         given:
         def patient = new Patient(firstName: "Version", lastName: "Test", age: 30).save(flush: true, failOnError: true)
-        def originalVersion = patient.version
 
         when:
         patient.age = 31
         patient.save(flush: true, failOnError: true)
 
         then:
-        patient.version == originalVersion + 1
+        patient.version == old(patient.version) + 1
 
         and:
         def reloaded = Patient.get(patient.id)
         reloaded.age == 31
-        reloaded.version == originalVersion + 1
+        reloaded.version == old(patient.version) + 1
     }
 
     void "test find operations"() {

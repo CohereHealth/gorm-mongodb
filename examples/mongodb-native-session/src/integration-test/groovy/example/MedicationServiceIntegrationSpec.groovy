@@ -46,6 +46,7 @@ class MedicationServiceIntegrationSpec extends Specification {
 
         then:
         deleted != null
+        Facility.count() == old(Facility.count()) - 1
         Facility.findByNpi('NPI085') == null
         Facility.findByNpi('NPI086') != null
     }

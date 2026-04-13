@@ -10,8 +10,31 @@ import org.grails.datastore.mapping.transactions.SessionHolder
 import org.springframework.transaction.support.TransactionSynchronizationManager
 
 /**
- * Trait providing common native transaction functionality for MongoDB GORM APIs.
- * Eliminates code duplication between MongoNativeStaticApi and MongoNativeInstanceApi.
+ * Trait providing native MongoDB transaction execution for GORM static and instance APIs.
+ *
+ * <p>Mixed into {@link MongoNativeStaticApi} and {@link MongoNativeInstanceApi} so that
+ * {@code DomainClass.withNativeTransaction} and per-instance operations share the same
+ * transaction lifecycle logic.</p>
+ *
+ * <h3>Reuse path</h3>
+ * <p>When a native session already exists on the current thread (checked via
+ * {@link org.grails.datastore.mapping.mongo.MongoNativeTransactionContext}), the closure
+ * is executed within that session. If the closure throws, the transaction is aborted
+ * immediately so that subsequent queries within the same test or request see the
+ * rollback. Without the abort the writes would remain visible through the same
+ * {@code ClientSession} until the session is closed.</p>
+ *
+ * <h3>New-session path</h3>
+ * <p>When no native session exists, a new {@code ClientSession} is started, a transaction
+ * is begun, and a {@link org.grails.datastore.mapping.mongo.MongoNativeCodecSession} is
+ * pushed onto the bound {@link SessionHolder} so that {@code getCurrentSession()} returns
+ * the native-aware session for the duration of the closure. On success the transaction is
+ * committed; on failure it is aborted. The session and context are cleaned up in a
+ * {@code finally} block.</p>
+ *
+ * @since 6.x
+ * @see org.grails.datastore.mapping.mongo.MongoNativeTransactionContext
+ * @see org.grails.datastore.mapping.mongo.MongoDatastore#withNativeTransaction
  */
 @CompileStatic
 trait MongoNativeTransactionSupport<D> {

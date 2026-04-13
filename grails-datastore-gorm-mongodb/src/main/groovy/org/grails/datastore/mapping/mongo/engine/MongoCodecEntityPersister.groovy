@@ -515,7 +515,7 @@ class MongoCodecEntityPersister extends ThirdPartyCacheEntityPersister<Object> {
 
     @Override
     protected Serializable persistEntity(PersistentEntity pe, Object obj) {
-        return persistEntity(pe, obj, true)
+        return persistEntity(pe, obj, getObjectIdentifier(obj) == null)
     }
 
     protected MongoCollection getMongoCollection(PersistentEntity pe) {

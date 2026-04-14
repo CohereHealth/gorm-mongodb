@@ -62,3 +62,8 @@ webdriverBinaries {
 tasks.named('test') {
     enabled = !System.getenv().containsKey('CI')
 }
+
+// Skip integration tests in CI due to ChromeDriver/Geb requirement
+tasks.named('integrationTest') {
+    enabled = !System.getenv().containsKey('CI')
+}

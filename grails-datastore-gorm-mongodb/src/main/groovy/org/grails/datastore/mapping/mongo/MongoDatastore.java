@@ -1186,6 +1186,11 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
                 if (existing.hasActiveTransaction()) {
                     existing.abortTransaction();
                 }
+                org.grails.datastore.mapping.core.Session gormSession =
+                    org.grails.datastore.mapping.core.DatastoreUtils.getSession(this, false);
+                if (gormSession != null) {
+                    gormSession.clear();
+                }
                 throw e;
             }
         }
@@ -1202,6 +1207,11 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
         } catch (Exception e) {
             if (session != null && session.hasActiveTransaction()) {
                 session.abortTransaction();
+            }
+            org.grails.datastore.mapping.core.Session gormSession =
+                org.grails.datastore.mapping.core.DatastoreUtils.getSession(this, false);
+            if (gormSession != null) {
+                gormSession.clear();
             }
             throw e;
         } finally {

@@ -2,6 +2,7 @@ package org.grails.datastore.gorm.mongo.api
 
 import com.mongodb.client.ClientSession
 import groovy.transform.CompileStatic
+import org.grails.datastore.mapping.core.DatastoreUtils
 import org.grails.datastore.mapping.core.Datastore
 import org.grails.datastore.mapping.mongo.MongoDatastore
 import org.grails.datastore.mapping.mongo.MongoNativeCodecSession
@@ -55,6 +56,10 @@ trait MongoNativeTransactionSupport<D> {
                 if (existing.hasActiveTransaction()) {
                     existing.abortTransaction()
                 }
+                def session = DatastoreUtils.getSession(getDatastore(), false)
+                if (session != null) {
+                    session.clear()
+                }
                 throw e
             }
         }
@@ -82,6 +87,9 @@ trait MongoNativeTransactionSupport<D> {
         } catch (Exception e) {
             if (clientSession?.hasActiveTransaction()) {
                 clientSession.abortTransaction()
+            }
+            if (nativeCodecSession != null) {
+                nativeCodecSession.clear()
             }
             throw e
         } finally {

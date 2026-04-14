@@ -294,6 +294,16 @@ class MongoNativeCodecSession extends MongoCodecSession {
     }
     
     /**
+     * Returns true only if a native MongoDB transaction is active on the context.
+     * Unlike the parent which always returns true (session-as-transaction),
+     * the native session requires an actual ClientSession transaction.
+     */
+    @Override
+    boolean hasTransaction() {
+        return MongoNativeTransactionContext.hasNativeSession()
+    }
+
+    /**
      * Returns the current transaction, including native transactions from context.
      * Prevents NoTransactionException when native transaction is active.
      */

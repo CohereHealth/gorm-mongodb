@@ -248,6 +248,18 @@ trait MongoEntity<D> implements GormEntity<D>, DynamicAttributes {
         currentMongoStaticApi().aggregate(pipeline, doWithAggregate, readPreference)
     }
 
+    static <T> List<T> aggregate(List pipeline, Class<T> resultType) {
+        currentMongoStaticApi().aggregate(pipeline, resultType)
+    }
+
+    static <T> List<T> aggregate(List pipeline, Class<T> resultType, Function<AggregateIterable, AggregateIterable> doWithAggregate) {
+        currentMongoStaticApi().aggregate(pipeline, resultType, doWithAggregate)
+    }
+
+    static <T> List<T> aggregate(List pipeline, Class<T> resultType, Function<AggregateIterable, AggregateIterable> doWithAggregate, ReadPreference readPreference) {
+        currentMongoStaticApi().aggregate(pipeline, resultType, doWithAggregate, readPreference)
+    }
+
     /**
      * Search for entities using the given query
      *

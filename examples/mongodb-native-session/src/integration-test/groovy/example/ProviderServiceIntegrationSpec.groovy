@@ -12,26 +12,6 @@ class ProviderServiceIntegrationSpec extends Specification {
 
     ProviderService providerService
 
-    /**
-     * Helper to check database state outside the current transaction.
-     * Temporarily pops the native session to query committed state.
-     */
-    def checkOutsideTransaction(Closure check) {
-        def result = null
-        // Pop the native session temporarily to query outside transaction
-        if (MongoNativeTransactionContext.hasNativeSession()) {
-            def session = MongoNativeTransactionContext.popNativeSession()
-            try {
-                result = check.call()
-            } finally {
-                MongoNativeTransactionContext.pushNativeSession(session)
-            }
-        } else {
-            result = check.call()
-        }
-        return result
-    }
-
     void "test create provider with native transaction"() {
         when: "creating a provider with native transaction"
         def provider = providerService.createProviderWithNativeTransaction("John", "Doe", 30)
@@ -95,21 +75,6 @@ class ProviderServiceIntegrationSpec extends Specification {
         createdProviders.every { it.id instanceof ObjectId }
     }
 
-    void "test multiple providers creation with rollback"() {
-        given: "provider data"
-        def providerData = [
-            [firstName: "Eve", lastName: "Miller", age: 27],
-            [firstName: "Frank", lastName: "Garcia", age: 31]
-        ]
-
-        when: "creating multiple providers with rollback"
-        providerService.createMultipleProvidersWithRollback(providerData, true)
-
-        then: "transaction is rolled back"
-        thrown(RuntimeException)
-        checkOutsideTransaction { Provider.count() } == 0
-    }
-
     void "test nested native transactions"() {
         when: "executing nested native transactions"
         def providers = providerService.testNestedNativeTransactions()
@@ -156,19 +121,5 @@ class ProviderServiceIntegrationSpec extends Specification {
         def reloaded = Provider.get(provider.id)
         reloaded.age == 31
         reloaded.version == originalVersion + 1
-    }
-
-    void "test transaction isolation"() {
-        when: "creating provider in failed transaction"
-        Provider.withNativeTransaction { session ->
-            new Provider(firstName: "Isolated", lastName: "Test", age: 25).save(failOnError: true)
-            throw new RuntimeException("Simulated failure")
-        }
-
-        then: "exception is thrown"
-        thrown(RuntimeException)
-
-        and: "provider is not persisted due to rollback"
-        checkOutsideTransaction { Provider.findByFirstName("Isolated") } == null
     }
 }

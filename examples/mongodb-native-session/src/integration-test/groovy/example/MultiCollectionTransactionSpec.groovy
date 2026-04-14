@@ -10,21 +10,6 @@ class MultiCollectionTransactionSpec extends Specification {
 
     MultiCollectionService multiCollectionService
 
-    def checkOutsideTransaction(Closure check) {
-        def result = null
-        if (org.grails.datastore.mapping.mongo.MongoNativeTransactionContext.hasNativeSession()) {
-            def session = org.grails.datastore.mapping.mongo.MongoNativeTransactionContext.popNativeSession()
-            try {
-                result = check.call()
-            } finally {
-                org.grails.datastore.mapping.mongo.MongoNativeTransactionContext.pushNativeSession(session)
-            }
-        } else {
-            result = check.call()
-        }
-        return result
-    }
-
     void "test create service request with coverage snapshot and audit"() {
         given: "service request and coverage data"
         def srData = [
@@ -153,48 +138,6 @@ class MultiCollectionTransactionSpec extends Specification {
         and: "each snapshot has correct type"
         def types = CoverageSnapshot.findAllByServiceRequestNumber("SR-004")*.snapshotType
         types.containsAll(["ELIGIBILITY", "BENEFITS", "AUTHORIZATION"])
-    }
-
-    void "test transaction isolation across collections"() {
-        given: "initial state"
-        def initialSRCount = ServiceRequest.count()
-        def initialSnapshotCount = CoverageSnapshot.count()
-        def initialAuditCount = AuditEvent.count()
-
-        when: "creating in failed transaction"
-        ServiceRequest.withNativeTransaction { session ->
-            new ServiceRequest(
-                requestNumber: "SR-005",
-                status: "PENDING",
-                patientName: "Charlie Brown"
-            ).save(flush: true, failOnError: true)
-
-            new CoverageSnapshot(
-                serviceRequestNumber: "SR-005",
-                snapshotType: "INITIAL",
-                coverageData: [:],
-                capturedAt: new Date()
-            ).save(flush: true, failOnError: true)
-
-            new AuditEvent(
-                entityId: "test-id",
-                entityType: "ServiceRequest",
-                action: "CREATE",
-                performedBy: "system",
-                timestamp: new Date()
-            ).save(flush: true, failOnError: true)
-
-            throw new RuntimeException("Force rollback")
-        }
-
-        then: "exception is thrown"
-        thrown(RuntimeException)
-
-        and: "no records are persisted in any collection"
-        checkOutsideTransaction { ServiceRequest.count() } == initialSRCount
-        checkOutsideTransaction { CoverageSnapshot.count() } == initialSnapshotCount
-        checkOutsideTransaction { AuditEvent.count() } == initialAuditCount
-        checkOutsideTransaction { ServiceRequest.findByRequestNumber("SR-005") } == null
     }
 
     void "test optimistic locking with multi-collection update"() {

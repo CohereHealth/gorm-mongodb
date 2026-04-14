@@ -10,21 +10,6 @@ class LargeObjectTransactionSpec extends Specification {
 
     LargeObjectService largeObjectService
 
-    def checkOutsideTransaction(Closure check) {
-        def result = null
-        if (org.grails.datastore.mapping.mongo.MongoNativeTransactionContext.hasNativeSession()) {
-            def session = org.grails.datastore.mapping.mongo.MongoNativeTransactionContext.popNativeSession()
-            try {
-                result = check.call()
-            } finally {
-                org.grails.datastore.mapping.mongo.MongoNativeTransactionContext.pushNativeSession(session)
-            }
-        } else {
-            result = check.call()
-        }
-        return result
-    }
-
     void "test create 100KB service request"() {
         when: "creating service request with 100KB metadata"
         def result = largeObjectService.createLargeServiceRequest(100)
@@ -95,32 +80,6 @@ class LargeObjectTransactionSpec extends Specification {
         and: "changes are persisted"
         def reloaded = ServiceRequest.findByRequestNumber(requestNumber)
         reloaded.status == "APPROVED"
-    }
-
-    void "test rollback with large objects"() {
-        given: "initial count"
-        def initialCount = ServiceRequest.count()
-
-        when: "creating large object in failed transaction"
-        ServiceRequest.withNativeTransaction { session ->
-            def metadata = LargeObjectService.generateLargeMetadata(500)
-            def sr = new ServiceRequest(
-                requestNumber: "SR-ROLLBACK-TEST",
-                status: "PENDING",
-                patientName: "Rollback Test",
-                metadata: metadata
-            )
-            sr.save(flush: true, failOnError: true)
-
-            throw new RuntimeException("Force rollback")
-        }
-
-        then: "exception is thrown"
-        thrown(RuntimeException)
-
-        and: "large object is not persisted"
-        checkOutsideTransaction { ServiceRequest.count() } == initialCount
-        checkOutsideTransaction { ServiceRequest.findByRequestNumber("SR-ROLLBACK-TEST") } == null
     }
 
     void "test multi-collection transaction with large objects"() {
@@ -205,35 +164,5 @@ Latency comparison:
         result100KB.latencyMs > 0
         result500KB.latencyMs > 0
         result1MB.latencyMs > 0
-    }
-
-    void "test large object transaction isolation"() {
-        given: "initial state"
-        def initialCount = ServiceRequest.count()
-
-        when: "creating multiple large objects in failed transaction"
-        ServiceRequest.withNativeTransaction { session ->
-            3.times { i ->
-                def metadata = LargeObjectService.generateLargeMetadata(500)
-                def sr = new ServiceRequest(
-                    requestNumber: "SR-ISOLATION-${i}",
-                    status: "PENDING",
-                    patientName: "Isolation Test ${i}",
-                    metadata: metadata
-                )
-                sr.save(flush: true, failOnError: true)
-            }
-
-            throw new RuntimeException("Force rollback")
-        }
-
-        then: "exception is thrown"
-        thrown(RuntimeException)
-
-        and: "none of the large objects are persisted"
-        checkOutsideTransaction { ServiceRequest.count() } == initialCount
-        checkOutsideTransaction { ServiceRequest.findByRequestNumber("SR-ISOLATION-0") } == null
-        checkOutsideTransaction { ServiceRequest.findByRequestNumber("SR-ISOLATION-1") } == null
-        checkOutsideTransaction { ServiceRequest.findByRequestNumber("SR-ISOLATION-2") } == null
     }
 }

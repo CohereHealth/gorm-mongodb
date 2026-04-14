@@ -144,31 +144,30 @@ class MixedModeTransactionSpec extends Specification {
         def initialProviderCount = Provider.count()
         def initialAuditCount = AuditEvent.count()
 
-        when: "legacy transaction succeeds while native fails"
+        and: "provider created with legacy mode"
         def provider = mixedModeService.createProviderLegacy([
             firstName: "Independent",
             lastName: "Legacy",
             age: 33
         ])
 
-        and: "native transaction fails"
-        try {
-            AuditEvent.withNativeTransaction { session ->
-                new AuditEvent(
-                    entityId: provider.id.toString(),
-                    entityType: "Provider",
-                    action: "CREATE",
-                    performedBy: "system",
-                    timestamp: new Date()
-                ).save(flush: true, failOnError: true)
+        when: "native transaction throws exception"
+        AuditEvent.withNativeTransaction { session ->
+            new AuditEvent(
+                entityId: provider.id.toString(),
+                entityType: "Provider",
+                action: "CREATE",
+                performedBy: "system",
+                timestamp: new Date()
+            ).save(flush: true, failOnError: true)
 
-                throw new RuntimeException("Native transaction failure")
-            }
-        } catch (RuntimeException e) {
-            // Expected
+            throw new RuntimeException("Native transaction failure")
         }
 
-        then: "within the test transaction, both provider and audit event are visible"
+        then: "exception is thrown"
+        thrown(RuntimeException)
+
+        and: "within the test transaction, both provider and audit event are visible"
         // With @NativeRollback, all operations are within the outer transaction
         // Even though the inner withNativeTransaction threw an exception,
         // the changes remain visible until the outer transaction rolls back

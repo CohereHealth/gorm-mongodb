@@ -162,36 +162,35 @@ class MultiCollectionTransactionSpec extends Specification {
         def initialAuditCount = AuditEvent.count()
 
         when: "creating in failed transaction"
-        try {
-            ServiceRequest.withNativeTransaction { session ->
-                new ServiceRequest(
-                    requestNumber: "SR-005",
-                    status: "PENDING",
-                    patientName: "Charlie Brown"
-                ).save(flush: true, failOnError: true)
+        ServiceRequest.withNativeTransaction { session ->
+            new ServiceRequest(
+                requestNumber: "SR-005",
+                status: "PENDING",
+                patientName: "Charlie Brown"
+            ).save(flush: true, failOnError: true)
 
-                new CoverageSnapshot(
-                    serviceRequestNumber: "SR-005",
-                    snapshotType: "INITIAL",
-                    coverageData: [:],
-                    capturedAt: new Date()
-                ).save(flush: true, failOnError: true)
+            new CoverageSnapshot(
+                serviceRequestNumber: "SR-005",
+                snapshotType: "INITIAL",
+                coverageData: [:],
+                capturedAt: new Date()
+            ).save(flush: true, failOnError: true)
 
-                new AuditEvent(
-                    entityId: "test-id",
-                    entityType: "ServiceRequest",
-                    action: "CREATE",
-                    performedBy: "system",
-                    timestamp: new Date()
-                ).save(flush: true, failOnError: true)
+            new AuditEvent(
+                entityId: "test-id",
+                entityType: "ServiceRequest",
+                action: "CREATE",
+                performedBy: "system",
+                timestamp: new Date()
+            ).save(flush: true, failOnError: true)
 
-                throw new RuntimeException("Force rollback")
-            }
-        } catch (RuntimeException e) {
-            // Expected
+            throw new RuntimeException("Force rollback")
         }
 
-        then: "no records are persisted in any collection"
+        then: "exception is thrown"
+        thrown(RuntimeException)
+
+        and: "no records are persisted in any collection"
         checkOutsideTransaction { ServiceRequest.count() } == initialSRCount
         checkOutsideTransaction { CoverageSnapshot.count() } == initialSnapshotCount
         checkOutsideTransaction { AuditEvent.count() } == initialAuditCount

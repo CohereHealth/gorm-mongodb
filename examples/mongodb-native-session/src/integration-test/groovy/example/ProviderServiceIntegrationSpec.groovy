@@ -160,16 +160,15 @@ class ProviderServiceIntegrationSpec extends Specification {
 
     void "test transaction isolation"() {
         when: "creating provider in failed transaction"
-        try {
-            Provider.withNativeTransaction { session ->
-                new Provider(firstName: "Isolated", lastName: "Test", age: 25).save(failOnError: true)
-                throw new RuntimeException("Simulated failure")
-            }
-        } catch (RuntimeException e) {
-            // Expected
+        Provider.withNativeTransaction { session ->
+            new Provider(firstName: "Isolated", lastName: "Test", age: 25).save(failOnError: true)
+            throw new RuntimeException("Simulated failure")
         }
 
-        then: "provider is not persisted due to rollback"
+        then: "exception is thrown"
+        thrown(RuntimeException)
+
+        and: "provider is not persisted due to rollback"
         checkOutsideTransaction { Provider.findByFirstName("Isolated") } == null
     }
 }

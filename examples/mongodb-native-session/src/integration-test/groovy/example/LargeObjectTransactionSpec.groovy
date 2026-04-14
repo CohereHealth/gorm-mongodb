@@ -102,24 +102,23 @@ class LargeObjectTransactionSpec extends Specification {
         def initialCount = ServiceRequest.count()
 
         when: "creating large object in failed transaction"
-        try {
-            ServiceRequest.withNativeTransaction { session ->
-                def metadata = LargeObjectService.generateLargeMetadata(500)
-                def sr = new ServiceRequest(
-                    requestNumber: "SR-ROLLBACK-TEST",
-                    status: "PENDING",
-                    patientName: "Rollback Test",
-                    metadata: metadata
-                )
-                sr.save(flush: true, failOnError: true)
+        ServiceRequest.withNativeTransaction { session ->
+            def metadata = LargeObjectService.generateLargeMetadata(500)
+            def sr = new ServiceRequest(
+                requestNumber: "SR-ROLLBACK-TEST",
+                status: "PENDING",
+                patientName: "Rollback Test",
+                metadata: metadata
+            )
+            sr.save(flush: true, failOnError: true)
 
-                throw new RuntimeException("Force rollback")
-            }
-        } catch (RuntimeException e) {
-            // Expected
+            throw new RuntimeException("Force rollback")
         }
 
-        then: "large object is not persisted"
+        then: "exception is thrown"
+        thrown(RuntimeException)
+
+        and: "large object is not persisted"
         checkOutsideTransaction { ServiceRequest.count() } == initialCount
         checkOutsideTransaction { ServiceRequest.findByRequestNumber("SR-ROLLBACK-TEST") } == null
     }
@@ -213,26 +212,25 @@ Latency comparison:
         def initialCount = ServiceRequest.count()
 
         when: "creating multiple large objects in failed transaction"
-        try {
-            ServiceRequest.withNativeTransaction { session ->
-                3.times { i ->
-                    def metadata = LargeObjectService.generateLargeMetadata(500)
-                    def sr = new ServiceRequest(
-                        requestNumber: "SR-ISOLATION-${i}",
-                        status: "PENDING",
-                        patientName: "Isolation Test ${i}",
-                        metadata: metadata
-                    )
-                    sr.save(flush: true, failOnError: true)
-                }
-
-                throw new RuntimeException("Force rollback")
+        ServiceRequest.withNativeTransaction { session ->
+            3.times { i ->
+                def metadata = LargeObjectService.generateLargeMetadata(500)
+                def sr = new ServiceRequest(
+                    requestNumber: "SR-ISOLATION-${i}",
+                    status: "PENDING",
+                    patientName: "Isolation Test ${i}",
+                    metadata: metadata
+                )
+                sr.save(flush: true, failOnError: true)
             }
-        } catch (RuntimeException e) {
-            // Expected
+
+            throw new RuntimeException("Force rollback")
         }
 
-        then: "none of the large objects are persisted"
+        then: "exception is thrown"
+        thrown(RuntimeException)
+
+        and: "none of the large objects are persisted"
         checkOutsideTransaction { ServiceRequest.count() } == initialCount
         checkOutsideTransaction { ServiceRequest.findByRequestNumber("SR-ISOLATION-0") } == null
         checkOutsideTransaction { ServiceRequest.findByRequestNumber("SR-ISOLATION-1") } == null

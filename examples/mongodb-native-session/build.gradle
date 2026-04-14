@@ -24,12 +24,3 @@ dependencies {
         exclude group: 'org.gebish', module: 'geb-spock'
     }
 }
-
-// Exclude failing tests in CI (pre-existing issues, not related to native transaction work)
-// TODO: Fix PatientServiceIntegrationSpec and NativeQueryIntegrationSpec
-tasks.named('integrationTest') {
-    if (System.getenv().containsKey('CI')) {
-        exclude '**/PatientServiceIntegrationSpec.class'
-        exclude '**/NativeQueryIntegrationSpec.class'
-    }
-}

@@ -73,7 +73,7 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
         }
         return super.doGetTransaction()
     }
-    
+
     @Override
     protected void doBegin(Object transaction, TransactionDefinition definition) throws TransactionException {
         if (shouldUseNativeTransaction()) {
@@ -175,23 +175,41 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
      * Begin native transaction
      */
     private void doBeginNative(Object transaction, TransactionDefinition definition) {
-        final Session session = datastore.connect()
         final MongoTransactionObject tx = extractMongoTransactionObject(transaction)
 
         if (tx instanceof MongoTransactionObject) {
-            final TransactionOptions options = TransactionOptions.builder().build()
-            def clientSession = ((MongoTransactionObject) tx).getClientSession()
-            final MongoSessionHolder sessionHolder = new MongoSessionHolder(session, clientSession)
-            log.debug("Started native MongoDB transaction")
+            // Check if there's an existing session holder (nested transaction)
+            def existingHolder = TransactionSynchronizationManager.getResource(datastore) as MongoSessionHolder
 
+            if (existingHolder != null) {
+                // Nested transaction - reuse existing session and client session
+                log.debug("Reusing existing native MongoDB transaction (nested transaction)")
+                tx.setMongoSessionHolder(existingHolder)
+                tx.setNewTransaction(false)  // Mark as nested transaction
+                return
+            }
+
+            // New transaction - create new session and client session
+            final Session session = datastore.connect()
+            final TransactionOptions options = TransactionOptions.builder().build()
+            ClientSession clientSession = mongoClient.startSession()
+            final MongoSessionHolder sessionHolder = new MongoSessionHolder(session, clientSession)
+
+            // Update the transaction object with the new sessionHolder
+            tx.setMongoSessionHolder(sessionHolder)
             sessionHolder.setTransaction(tx)
             if (!clientSession.hasActiveTransaction()) {
                 tx.startTransaction(options)
             }
 
+            log.debug("Started native MongoDB transaction")
+
             // Bind to Spring transaction manager
             TransactionSynchronizationManager.bindResource(datastore, sessionHolder)
         } else {
+            // This shouldn't happen in native transaction mode, but handle it gracefully
+            log.warn("Transaction object is not MongoTransactionObject in native mode: {}", tx.getClass())
+            final Session session = datastore.connect()
             final SessionHolder sessionHolder = new SessionHolder(session)
             log.debug("Started standard MongoDB transaction")
 
@@ -207,6 +225,13 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
      */
     private void doCommitNative(DefaultTransactionStatus status) {
         final MongoTransactionObject txObject = extractMongoTransactionObject(status.transaction)
+
+        // Only commit if this transaction owns the resource (not nested)
+        if (!txObject.isNewTransaction()) {
+            log.debug("Skipping commit for nested transaction (txObject.isNewTransaction=false)")
+            return
+        }
+
         Transaction tx = txObject.mongoSessionHolder?.transaction
         if (tx) {
             tx.commit()
@@ -219,6 +244,13 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
      */
     private void doRollbackNative(DefaultTransactionStatus status) {
         final MongoTransactionObject txObject = extractMongoTransactionObject(status.transaction)
+
+        // Only rollback if this transaction owns the resource (not nested)
+        if (!txObject.isNewTransaction()) {
+            log.debug("Skipping rollback for nested transaction (txObject.isNewTransaction=false)")
+            return
+        }
+
         Transaction tx = txObject.mongoSessionHolder?.transaction
         if (tx) {
             tx.rollback()
@@ -230,9 +262,15 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
      * Cleanup native transaction resources
      */
     private void doCleanupNative(MongoTransactionObject transaction) {
+        // Only cleanup if this transaction owns the resource (not nested)
+        if (!transaction.isNewTransaction()) {
+            log.debug("Skipping cleanup for nested transaction")
+            return
+        }
+
         // Unbind from Spring transaction manager
         TransactionSynchronizationManager.unbindResourceIfPossible(datastore)
-        
+
         transaction.mongoSessionHolder?.getClientSession()?.close()
 
         log.debug("Cleaned up native MongoDB transaction resources")

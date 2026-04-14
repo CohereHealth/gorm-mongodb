@@ -17,15 +17,33 @@ class MongoTransactionObject implements Transaction<ClientSession> {
     private @Nullable MongoSessionHolder mongoSessionHolder
     private boolean active = true
     private boolean rollbackOnly = false
-    private final boolean isNested = false
+    private boolean isNested = false
+    private boolean isNewTransaction = true
 
     MongoTransactionObject(MongoSessionHolder mongoSessionHolder) {
         this.mongoSessionHolder = mongoSessionHolder
     }
 
+    MongoTransactionObject(MongoSessionHolder mongoSessionHolder, boolean isNewTransaction) {
+        this.mongoSessionHolder = mongoSessionHolder
+        this.isNewTransaction = isNewTransaction
+    }
+
     @Nullable
     MongoSessionHolder getMongoSessionHolder() {
         return mongoSessionHolder
+    }
+
+    void setMongoSessionHolder(MongoSessionHolder mongoSessionHolder) {
+        this.mongoSessionHolder = mongoSessionHolder
+    }
+
+    boolean isNewTransaction() {
+        return isNewTransaction
+    }
+
+    void setNewTransaction(boolean isNewTransaction) {
+        this.isNewTransaction = isNewTransaction
     }
 
     @Override
@@ -54,20 +72,23 @@ class MongoTransactionObject implements Transaction<ClientSession> {
             rollback()
             return
         }
+
+        // Only commit and close if this is the outermost transaction
+        if (!isNewTransaction) {
+            log.debug("Skipping commit for nested transaction")
+            return
+        }
+
         final ClientSession clientSession = getRequiredClientSession()
         try {
-            if (!isNested && clientSession.hasActiveTransaction()) {
+            if (clientSession.hasActiveTransaction()) {
                 clientSession.commitTransaction()
                 log.debug("Committed native MongoDB transaction")
-            } else {
-                log.debug("Skipping commit for nested transaction")
             }
         } finally {
             active = false
-            if (!isNested) {
-                clientSession.close()
-                log.debug("Closed MongoDB client session")
-            }
+            clientSession.close()
+            log.debug("Closed MongoDB client session")
         }
     }
     
@@ -77,20 +98,23 @@ class MongoTransactionObject implements Transaction<ClientSession> {
             log.debug("Transaction already inactive, skipping rollback")
             return
         }
+
+        // Only rollback and close if this is the outermost transaction
+        if (!isNewTransaction) {
+            log.debug("Skipping rollback for nested transaction")
+            return
+        }
+
         final ClientSession clientSession = getRequiredClientSession()
         try {
-            if (!isNested && clientSession.hasActiveTransaction()) {
+            if (clientSession.hasActiveTransaction()) {
                 clientSession.abortTransaction()
                 log.debug("Rolled back native MongoDB transaction")
-            } else {
-                log.debug("Skipping rollback for nested transaction")
             }
         } finally {
             active = false
-            if (!isNested) {
-                clientSession.close()
-                log.debug("Closed MongoDB client session after rollback")
-            }
+            clientSession.close()
+            log.debug("Closed MongoDB client session after rollback")
         }
     }
 

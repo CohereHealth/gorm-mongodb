@@ -165,27 +165,20 @@ class NativeTransactionIntegrationSpec extends GormDatastoreSpec {
         def regularSession = mongoDatastore.connect()
         def entity = regularSession.mappingContext.getPersistentEntity(Person.name)
         def regularPersister = regularSession.getPersister(entity)
-
+        
         then: "should use regular persister"
         !(regularPersister instanceof MongoNativeCodecEntityPersister)
-
+        
         cleanup:
         regularSession?.disconnect()
-    }
-
-    void "test persister in native transaction"() {
-        given: "entity"
-        def regularSession = mongoDatastore.connect()
-        def entity = regularSession.mappingContext.getPersistentEntity(Person.name)
-        regularSession.disconnect()
-
+        
         when: "checking persister in native transaction"
         def nativePersister = null
         Person.withTransaction { status ->
             def session = DatastoreUtils.getSession(mongoDatastore)
             nativePersister = session.getPersister(entity)
         }
-
+        
         then: "should use native persister"
         nativePersister instanceof MongoNativeCodecEntityPersister
     }

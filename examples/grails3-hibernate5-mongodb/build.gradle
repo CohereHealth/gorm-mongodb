@@ -55,16 +55,6 @@ tasks.withType(Test) {
     }
 }
 
-// Skip tests in CI due to Spring bean wiring issues and Docker requirement
-// TODO: Fix MongoDatastorePersistenceContextInterceptor bean configuration
-tasks.named('test') {
-    enabled = !System.getenv().containsKey('CI')
-}
-
-tasks.named('integrationTest') {
-    enabled = !System.getenv().containsKey('CI')
-}
-
 webdriverBinaries {
     if (!System.getenv().containsKey('CI')) {
         chromedriver "$chromeDriverVersion"

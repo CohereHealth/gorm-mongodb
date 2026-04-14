@@ -52,8 +52,9 @@ trait MongoNativeTransactionSupport<D> {
             try {
                 return (D) callable.call(existing)
             } catch (Exception e) {
-                // Don't abort the transaction here - let the outer scope handle it
-                // If we abort here, we're aborting a transaction we didn't start
+                if (existing.hasActiveTransaction()) {
+                    existing.abortTransaction()
+                }
                 throw e
             }
         }

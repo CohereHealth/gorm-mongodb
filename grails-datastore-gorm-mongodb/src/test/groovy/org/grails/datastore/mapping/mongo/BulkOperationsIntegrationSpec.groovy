@@ -29,20 +29,22 @@ class BulkOperationsIntegrationSpec extends GormDatastoreSpec {
 
     void "test bulk insert with native transactions"() {
         given: "list of persons"
-        def persons = (1..50).collect { 
+        def persons = (1..50).collect {
             new Person(firstName: "Native$it", lastName: "Bulk", age: 25)
         }
         def initialCount = Person.count()
-        
+
         when: "bulk insert within native transaction"
         def result = null
+        def countDuringTransaction = 0
         Person.withTransaction { status ->
             result = BulkOperations.bulkInsert(Person, persons)
-            
-            then: "should execute immediately"
-            Person.count() == initialCount + 50
+            countDuringTransaction = Person.count()
         }
-        
+
+        then: "should execute immediately"
+        countDuringTransaction == initialCount + 50
+
         and: "should persist after transaction"
         Person.count() == initialCount + 50
         result.size() == 50
@@ -179,35 +181,37 @@ class BulkOperationsIntegrationSpec extends GormDatastoreSpec {
         bulkTime <= individualTime * 2 // Allow some variance
     }
 
-    void "test bulk operations with different session types"() {
+    void "test bulk operations with regular session"() {
         when: "bulk operations in regular session"
         def regularSession = mongoDatastore.connect()
         DatastoreUtils.bindSession(regularSession)
-        
-        def persons1 = (1..10).collect { 
+
+        def persons1 = (1..10).collect {
             new Person(firstName: "Regular$it", lastName: "Session", age: 25)
         }
         def result1 = BulkOperations.bulkInsert(Person, persons1)
-        
+
         then: "should work with regular session"
         result1.size() == 10
-        
+
         cleanup:
         DatastoreUtils.unbindSession(regularSession)
         regularSession?.disconnect()
-        
+    }
+
+    void "test bulk operations with native transaction"() {
         when: "bulk operations in native transaction"
         def result2 = null
         Person.withTransaction { status ->
-            def persons2 = (1..10).collect { 
+            def persons2 = (1..10).collect {
                 new Person(firstName: "Native$it", lastName: "Session", age: 30)
             }
             result2 = BulkOperations.bulkInsert(Person, persons2)
         }
-        
+
         then: "should work with native session"
         result2.size() == 10
-        Person.countByLastName("Session") == 20
+        Person.countByLastName("Session") == 10
     }
 
     void "test bulk operations with validation"() {

@@ -1221,4 +1221,31 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
             }
         }
     }
+
+    /**
+     * Executes a closure within a new independent native MongoDB transaction (REQUIRES_NEW).
+     * Always starts a fresh ClientSession regardless of any existing native transaction.
+     */
+    public <T> T withNewNativeTransaction(Closure<T> callable) {
+        com.mongodb.client.ClientSession session = null;
+        try {
+            session = mongo.startSession();
+            session.startTransaction();
+            MongoNativeTransactionContext.pushNativeSession(session);
+
+            T result = callable.call(session);
+            session.commitTransaction();
+            return result;
+        } catch (Exception e) {
+            if (session != null && session.hasActiveTransaction()) {
+                session.abortTransaction();
+            }
+            throw e;
+        } finally {
+            MongoNativeTransactionContext.popNativeSession();
+            if (session != null) {
+                session.close();
+            }
+        }
+    }
 }

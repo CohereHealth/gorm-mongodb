@@ -105,6 +105,52 @@ trait MongoNativeTransactionSupport<D> {
     }
 
     /**
+     * Executes a closure within a new independent native MongoDB transaction.
+     * Always starts a fresh {@code ClientSession} regardless of whether one already exists
+     * (REQUIRES_NEW semantics). The outer transaction is suspended for the duration.
+     * The inner transaction commits/aborts independently of any outer transaction.
+     */
+    D withNewNativeTransaction(Closure callable) {
+        final MongoDatastore mongoDatastore = (MongoDatastore) getDatastore()
+        def mongoClient = mongoDatastore.mongoClient
+        ClientSession clientSession = null
+        MongoNativeCodecSession nativeCodecSession = null
+
+        try {
+            clientSession = mongoClient.startSession()
+            clientSession.startTransaction()
+            MongoNativeTransactionContext.pushNativeSession(clientSession)
+
+            nativeCodecSession = new MongoNativeCodecSession(mongoDatastore, mongoDatastore.mappingContext, mongoDatastore.applicationEventPublisher, false)
+            SessionHolder holder = (SessionHolder) TransactionSynchronizationManager.getResource(mongoDatastore)
+            if (holder != null) {
+                holder.addSession(nativeCodecSession)
+            }
+
+            D result = (D) callable.call(clientSession)
+            clientSession.commitTransaction()
+            return result
+        } catch (Exception e) {
+            if (clientSession?.hasActiveTransaction()) {
+                clientSession.abortTransaction()
+            }
+            if (nativeCodecSession != null) {
+                nativeCodecSession.clear()
+            }
+            throw e
+        } finally {
+            MongoNativeTransactionContext.popNativeSession()
+            if (nativeCodecSession != null) {
+                SessionHolder holder = (SessionHolder) TransactionSynchronizationManager.getResource(mongoDatastore)
+                if (holder != null) {
+                    holder.removeSession(nativeCodecSession)
+                }
+            }
+            clientSession?.close()
+        }
+    }
+
+    /**
      * Gets the current native transaction session.
      */
     ClientSession getCurrentNativeSession() {

@@ -10,6 +10,12 @@ class EmbeddedIntegrationSpec extends Specification {
 
     FacilityService facilityService
 
+    void cleanup() {
+        Facility.withNewNativeTransaction {
+            Facility.collection.drop()
+        }
+    }
+
     void "test create facility with embedded address via service"() {
         when:
         def facility = facilityService.createFacilityWithAddress(
@@ -205,14 +211,18 @@ class EmbeddedIntegrationSpec extends Specification {
 
     void "test rollback reverts embedded address changes"() {
         given:
-        def facility = new Facility(name: 'Rollback Embedded', npi: 'NPI140', facilityType: 'HOSPITAL', bedCount: 50,
-            address: new FacilityAddress(street: '1 St', city: 'Original', state: 'OR', zipCode: '00000')
-        ).save(failOnError: true)
+        def facilityId = null
+        Facility.withNewNativeTransaction {
+            def facility = new Facility(name: 'Rollback Embedded', npi: 'NPI140', facilityType: 'HOSPITAL', bedCount: 50,
+                address: new FacilityAddress(street: '1 St', city: 'Original', state: 'OR', zipCode: '00000')
+            ).save(failOnError: true)
+            facilityId = facility.id
+        }
 
         when:
         try {
             Facility.withNativeTransaction { session ->
-                def f = Facility.get(facility.id)
+                def f = Facility.get(facilityId)
                 f.address.city = 'Changed'
                 f.save(failOnError: true)
                 throw new RuntimeException("Force rollback")
@@ -220,8 +230,13 @@ class EmbeddedIntegrationSpec extends Specification {
         } catch (RuntimeException e) {
         }
 
+        def reloaded = null
+        Facility.withNewNativeTransaction {
+            reloaded = Facility.get(facilityId)
+        }
+
         then:
-        Facility.get(facility.id).address.city == 'Original'
+        reloaded.address.city == 'Original'
     }
 
     void "test rollback reverts new facility with embedded address"() {
@@ -236,8 +251,12 @@ class EmbeddedIntegrationSpec extends Specification {
         } catch (RuntimeException e) {
         }
 
+        def found = null
+        Facility.withNewNativeTransaction {
+            found = Facility.findByNpi('NPI141')
+        }
+
         then:
-        Facility.count() == old(Facility.count())
-        Facility.findByNpi('NPI141') == null
+        found == null
     }
 }

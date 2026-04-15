@@ -165,4 +165,93 @@ Latency comparison:
         result500KB.latencyMs > 0
         result1MB.latencyMs > 0
     }
+
+    void "test native transaction vs regular save performance comparison"() {
+        when: "measuring native transaction performance for 100KB"
+        def nativeStart100 = System.currentTimeMillis()
+        def nativeResult100 = largeObjectService.createLargeServiceRequest(100)
+        def nativeTime100 = System.currentTimeMillis() - nativeStart100
+
+        and: "measuring regular save performance for 100KB"
+        def regularStart100 = System.currentTimeMillis()
+        def metadata100 = LargeObjectService.generateLargeMetadata(100)
+        def regularSR100 = new ServiceRequest(
+            requestNumber: "SR-REGULAR-100-" + UUID.randomUUID().toString().substring(0, 8),
+            status: "PENDING",
+            patientName: "Regular Test",
+            metadata: metadata100
+        ).save(flush: true, failOnError: true)
+        def regularTime100 = System.currentTimeMillis() - regularStart100
+
+        and: "measuring native transaction performance for 500KB"
+        def nativeStart500 = System.currentTimeMillis()
+        def nativeResult500 = largeObjectService.createLargeServiceRequest(500)
+        def nativeTime500 = System.currentTimeMillis() - nativeStart500
+
+        and: "measuring regular save performance for 500KB"
+        def regularStart500 = System.currentTimeMillis()
+        def metadata500 = LargeObjectService.generateLargeMetadata(500)
+        def regularSR500 = new ServiceRequest(
+            requestNumber: "SR-REGULAR-500-" + UUID.randomUUID().toString().substring(0, 8),
+            status: "PENDING",
+            patientName: "Regular Test",
+            metadata: metadata500
+        ).save(flush: true, failOnError: true)
+        def regularTime500 = System.currentTimeMillis() - regularStart500
+
+        and: "measuring native transaction performance for 1MB"
+        def nativeStart1MB = System.currentTimeMillis()
+        def nativeResult1MB = largeObjectService.createLargeServiceRequest(1024)
+        def nativeTime1MB = System.currentTimeMillis() - nativeStart1MB
+
+        and: "measuring regular save performance for 1MB"
+        def regularStart1MB = System.currentTimeMillis()
+        def metadata1MB = LargeObjectService.generateLargeMetadata(1024)
+        def regularSR1MB = new ServiceRequest(
+            requestNumber: "SR-REGULAR-1MB-" + UUID.randomUUID().toString().substring(0, 8),
+            status: "PENDING",
+            patientName: "Regular Test",
+            metadata: metadata1MB
+        ).save(flush: true, failOnError: true)
+        def regularTime1MB = System.currentTimeMillis() - regularStart1MB
+
+        then: "all operations succeed"
+        nativeResult100.result.serviceRequest != null
+        regularSR100 != null
+        nativeResult500.result.serviceRequest != null
+        regularSR500 != null
+        nativeResult1MB.result.serviceRequest != null
+        regularSR1MB != null
+
+        and: "calculate and display overhead"
+        def overhead100 = regularTime100 > 0 ? (((nativeTime100 - regularTime100) / regularTime100) * 100) : 0
+        def overhead500 = regularTime500 > 0 ? (((nativeTime500 - regularTime500) / regularTime500) * 100) : 0
+        def overhead1MB = regularTime1MB > 0 ? (((nativeTime1MB - regularTime1MB) / regularTime1MB) * 100) : 0
+
+        println """
+╔══════════════════════════════════════════════════════════════════════════════╗
+║           NATIVE TRANSACTION vs REGULAR SAVE PERFORMANCE COMPARISON          ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+100KB Objects:
+  Native Transaction:  ${nativeTime100}ms
+  Regular Save:        ${regularTime100}ms
+  Overhead:           ${String.format('%.1f', overhead100)}%
+
+500KB Objects:
+  Native Transaction:  ${nativeTime500}ms
+  Regular Save:        ${regularTime500}ms
+  Overhead:           ${String.format('%.1f', overhead500)}%
+
+1MB Objects:
+  Native Transaction:  ${nativeTime1MB}ms
+  Regular Save:        ${regularTime1MB}ms
+  Overhead:           ${String.format('%.1f', overhead1MB)}%
+
+Average Overhead:     ${String.format('%.1f', (overhead100 + overhead500 + overhead1MB) / 3)}%
+
+Note: Native transaction includes multi-collection write (ServiceRequest + CoverageSnapshot)
+      Regular save only writes ServiceRequest
+"""
+    }
 }

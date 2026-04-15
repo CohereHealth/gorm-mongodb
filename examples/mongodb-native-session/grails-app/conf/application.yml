@@ -9,11 +9,6 @@ grails:
         url: mongodb://localhost:27017/mongodb_native_session_test?replicaSet=rs0
         nativeTransactionsEnabled: true
 
-# Also add at datastore level
-dataSource: {}
-
-grails.mongodb.nativeTransactionsEnabled: true
-
 logging:
     level:
         example: DEBUG

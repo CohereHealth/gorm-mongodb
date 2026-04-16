@@ -7,7 +7,6 @@ grails:
             events: false
     mongodb:
         url: mongodb://localhost:27017/mongodb_native_session_test?replicaSet=rs0
-        nativeTransactionsEnabled: true
 
 logging:
     level:

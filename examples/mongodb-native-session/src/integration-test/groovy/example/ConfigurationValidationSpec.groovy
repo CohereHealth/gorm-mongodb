@@ -11,13 +11,13 @@ class ConfigurationValidationSpec extends Specification {
 
     MongoDatastore mongoDatastore
 
-    void "test native transactions are enabled"() {
-        when: "checking if native transactions are enabled"
+    void "test native transactions work without global config"() {
+        when: "checking native transaction support"
         def enabled = mongoDatastore.nativeTransactionsEnabled
 
-        then: "native transactions should be enabled"
-        enabled == true
-        println "Native transactions enabled: ${enabled}"
+        then: "native transactions are not globally enabled (we use withNativeTransaction explicitly)"
+        enabled == false
+        println "Native transactions globally enabled: ${enabled} (expected false - we use explicit withNativeTransaction)"
     }
 
     void "test can use withNativeTransaction"() {

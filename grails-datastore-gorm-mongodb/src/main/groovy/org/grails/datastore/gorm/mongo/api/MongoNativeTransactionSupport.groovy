@@ -2,6 +2,7 @@ package org.grails.datastore.gorm.mongo.api
 
 import com.mongodb.client.ClientSession
 import groovy.transform.CompileStatic
+import org.grails.datastore.mapping.core.DatastoreUtils
 import org.grails.datastore.mapping.core.Datastore
 import org.grails.datastore.mapping.mongo.MongoDatastore
 import org.grails.datastore.mapping.mongo.MongoNativeCodecSession
@@ -55,6 +56,10 @@ trait MongoNativeTransactionSupport<D> {
                 if (existing.hasActiveTransaction()) {
                     existing.abortTransaction()
                 }
+                def session = DatastoreUtils.getSession(getDatastore(), false)
+                if (session != null) {
+                    session.clear()
+                }
                 throw e
             }
         }
@@ -82,6 +87,55 @@ trait MongoNativeTransactionSupport<D> {
         } catch (Exception e) {
             if (clientSession?.hasActiveTransaction()) {
                 clientSession.abortTransaction()
+            }
+            if (nativeCodecSession != null) {
+                nativeCodecSession.clear()
+            }
+            throw e
+        } finally {
+            MongoNativeTransactionContext.popNativeSession()
+            if (nativeCodecSession != null) {
+                SessionHolder holder = (SessionHolder) TransactionSynchronizationManager.getResource(mongoDatastore)
+                if (holder != null) {
+                    holder.removeSession(nativeCodecSession)
+                }
+            }
+            clientSession?.close()
+        }
+    }
+
+    /**
+     * Executes a closure within a new independent native MongoDB transaction.
+     * Always starts a fresh {@code ClientSession} regardless of whether one already exists
+     * (REQUIRES_NEW semantics). The outer transaction is suspended for the duration.
+     * The inner transaction commits/aborts independently of any outer transaction.
+     */
+    D withNewNativeTransaction(Closure callable) {
+        final MongoDatastore mongoDatastore = (MongoDatastore) getDatastore()
+        def mongoClient = mongoDatastore.mongoClient
+        ClientSession clientSession = null
+        MongoNativeCodecSession nativeCodecSession = null
+
+        try {
+            clientSession = mongoClient.startSession()
+            clientSession.startTransaction()
+            MongoNativeTransactionContext.pushNativeSession(clientSession)
+
+            nativeCodecSession = new MongoNativeCodecSession(mongoDatastore, mongoDatastore.mappingContext, mongoDatastore.applicationEventPublisher, false)
+            SessionHolder holder = (SessionHolder) TransactionSynchronizationManager.getResource(mongoDatastore)
+            if (holder != null) {
+                holder.addSession(nativeCodecSession)
+            }
+
+            D result = (D) callable.call(clientSession)
+            clientSession.commitTransaction()
+            return result
+        } catch (Exception e) {
+            if (clientSession?.hasActiveTransaction()) {
+                clientSession.abortTransaction()
+            }
+            if (nativeCodecSession != null) {
+                nativeCodecSession.clear()
             }
             throw e
         } finally {

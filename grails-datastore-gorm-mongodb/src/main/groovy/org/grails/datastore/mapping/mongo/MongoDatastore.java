@@ -1186,10 +1186,47 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
                 if (existing.hasActiveTransaction()) {
                     existing.abortTransaction();
                 }
+                org.grails.datastore.mapping.core.Session gormSession =
+                    org.grails.datastore.mapping.core.DatastoreUtils.getSession(this, false);
+                if (gormSession != null) {
+                    gormSession.clear();
+                }
                 throw e;
             }
         }
 
+        com.mongodb.client.ClientSession session = null;
+        try {
+            session = mongo.startSession();
+            session.startTransaction();
+            MongoNativeTransactionContext.pushNativeSession(session);
+
+            T result = callable.call(session);
+            session.commitTransaction();
+            return result;
+        } catch (Exception e) {
+            if (session != null && session.hasActiveTransaction()) {
+                session.abortTransaction();
+            }
+            org.grails.datastore.mapping.core.Session gormSession =
+                org.grails.datastore.mapping.core.DatastoreUtils.getSession(this, false);
+            if (gormSession != null) {
+                gormSession.clear();
+            }
+            throw e;
+        } finally {
+            MongoNativeTransactionContext.popNativeSession();
+            if (session != null) {
+                session.close();
+            }
+        }
+    }
+
+    /**
+     * Executes a closure within a new independent native MongoDB transaction (REQUIRES_NEW).
+     * Always starts a fresh ClientSession regardless of any existing native transaction.
+     */
+    public <T> T withNewNativeTransaction(Closure<T> callable) {
         com.mongodb.client.ClientSession session = null;
         try {
             session = mongo.startSession();

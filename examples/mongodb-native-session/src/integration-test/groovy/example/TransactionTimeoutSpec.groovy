@@ -2,6 +2,7 @@ package example
 
 import grails.testing.mixin.integration.Integration
 import org.grails.datastore.mapping.mongo.NativeRollback
+import spock.lang.Ignore
 import spock.lang.Specification
 import com.mongodb.MongoExecutionTimeoutException
 import com.mongodb.MongoCommandException
@@ -338,6 +339,8 @@ class TransactionTimeoutSpec extends Specification {
         ServiceRequest.collection.drop()
     }
 
+    @Ignore("Unreliable test that requires 65+ seconds to trigger MongoDB's transaction idle timeout. " +
+            "Timeout behavior is environment-dependent (server-side configuration), not suitable for automated testing. ")
     void "test forced timeout with many operations exceeding time limit"() {
         given: "initial counts"
         def initialSRCount = ServiceRequest.count()

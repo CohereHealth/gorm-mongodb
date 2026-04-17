@@ -1,15 +1,41 @@
 package example
 
 import grails.testing.mixin.integration.Integration
+import org.grails.datastore.mapping.core.Datastore
+import org.grails.datastore.mapping.core.Session
+import org.grails.datastore.mapping.mongo.MongoDatastore
 import org.grails.datastore.mapping.mongo.MongoNativeTransactionContext
-import org.grails.datastore.mapping.mongo.NativeRollback
+import org.grails.datastore.mapping.transactions.SessionHolder
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.transaction.support.TransactionSynchronizationManager
 import spock.lang.Specification
 
 @Integration
-@NativeRollback
 class MixedModeTransactionSpec extends Specification {
 
     MixedModeService mixedModeService
+
+    @Autowired
+    Datastore mongoDatastore
+
+    Session session
+    SessionHolder holder
+
+    def setup() {
+        session = mongoDatastore.connect()
+        holder = new SessionHolder(session)
+        TransactionSynchronizationManager.bindResource(mongoDatastore, holder)
+    }
+
+    def cleanup() {
+        if (holder) {
+            TransactionSynchronizationManager.unbindResource(mongoDatastore)
+        }
+        session?.disconnect()
+
+        Provider.collection.drop()
+        AuditEvent.collection.drop()
+    }
 
     def checkOutsideTransaction(Closure check) {
         def result = null
@@ -167,14 +193,11 @@ class MixedModeTransactionSpec extends Specification {
         then: "exception is thrown"
         thrown(RuntimeException)
 
-        and: "within the test transaction, both provider and audit event are visible"
-        // With @NativeRollback, all operations are within the outer transaction
-        // Even though the inner withNativeTransaction threw an exception,
-        // the changes remain visible until the outer transaction rolls back
+        and: "provider persists (legacy transaction committed)"
         Provider.count() == initialProviderCount + 1
         Provider.findByFirstName("Independent") != null
 
-        and: "audit event is visible (saved before exception)"
-        AuditEvent.count() == initialAuditCount + 1
+        and: "audit event is rolled back (native transaction aborted)"
+        AuditEvent.count() == initialAuditCount
     }
 }

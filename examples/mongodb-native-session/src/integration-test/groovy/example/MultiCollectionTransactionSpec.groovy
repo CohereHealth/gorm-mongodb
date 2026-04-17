@@ -1,14 +1,18 @@
 package example
 
 import grails.testing.mixin.integration.Integration
-import org.grails.datastore.mapping.mongo.NativeRollback
 import spock.lang.Specification
 
 @Integration
-@NativeRollback
 class MultiCollectionTransactionSpec extends Specification {
 
     MultiCollectionService multiCollectionService
+
+    def cleanup() {
+        ServiceRequest.collection.drop()
+        CoverageSnapshot.collection.drop()
+        AuditEvent.collection.drop()
+    }
 
     void "test create service request with coverage snapshot and audit"() {
         given: "service request and coverage data"
@@ -66,17 +70,14 @@ class MultiCollectionTransactionSpec extends Specification {
         then: "exception is thrown"
         thrown(RuntimeException)
 
-        and: "changes from failed operation are visible within transaction"
-        // Within a single transaction, changes remain visible even after exception
-        // The actual rollback happens when the @NativeRollback transaction aborts
+        and: "failed transaction is rolled back atomically"
         ServiceRequest.count() == initialSRCount
-        // Snapshot and audit were created before exception, so they're visible
-        CoverageSnapshot.count() == initialSnapshotCount + 1
-        AuditEvent.count() == initialAuditCount + 1
+        CoverageSnapshot.count() == initialSnapshotCount
+        AuditEvent.count() == initialAuditCount
 
-        and: "service request was updated (visible within transaction)"
+        and: "service request update was rolled back"
         def sr = ServiceRequest.findByRequestNumber("SR-002")
-        sr.status == "APPROVED"  // Update happened before exception
+        sr.status == "PENDING"
     }
 
     void "test multi-collection transaction successful update"() {

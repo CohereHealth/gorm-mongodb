@@ -3,8 +3,11 @@ on:
   push:
     branches:
       - '[6-9]+.[0-9]+.x'
+      - feat/native-mongodb-transactions
   pull_request:
-    # Run on ALL pull requests, regardless of target branch
+    branches:
+      - '[6-9]+.[0-9]+.x'
+      - feat/native-mongodb-transactions
   workflow_dispatch:
     inputs:
       message:

@@ -20,9 +20,6 @@ class LargeObjectTransactionBehaviorSpec extends Specification {
     }
 
     void "test rollback with large objects"() {
-        given: "initial count"
-        def initialCount = ServiceRequest.count()
-
         when: "creating large object in failed transaction"
         ServiceRequest.withNativeTransaction { session ->
             def metadata = LargeObjectService.generateLargeMetadata(500)
@@ -41,14 +38,11 @@ class LargeObjectTransactionBehaviorSpec extends Specification {
         thrown(RuntimeException)
 
         and: "large object is not persisted"
-        ServiceRequest.count() == initialCount
+        ServiceRequest.count() == old(ServiceRequest.count())
         ServiceRequest.findByRequestNumber("SR-ROLLBACK-TEST") == null
     }
 
     void "test large object transaction isolation"() {
-        given: "initial state"
-        def initialCount = ServiceRequest.count()
-
         when: "creating multiple large objects in failed transaction"
         ServiceRequest.withNativeTransaction { session ->
             3.times { i ->
@@ -69,7 +63,7 @@ class LargeObjectTransactionBehaviorSpec extends Specification {
         thrown(RuntimeException)
 
         and: "none of the large objects are persisted"
-        ServiceRequest.count() == initialCount
+        ServiceRequest.count() == old(ServiceRequest.count())
         ServiceRequest.findByRequestNumber("SR-ISOLATION-0") == null
         ServiceRequest.findByRequestNumber("SR-ISOLATION-1") == null
         ServiceRequest.findByRequestNumber("SR-ISOLATION-2") == null

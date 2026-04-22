@@ -35,7 +35,7 @@ class MultiCollectionTransactionSpec extends Specification {
         result.audit != null
 
         and: "service request is persisted"
-        ServiceRequest.count() == 1
+        ServiceRequest.count() == old(ServiceRequest.count()) + 1
         ServiceRequest.findByRequestNumber("SR-001") != null
 
         and: "coverage snapshot is persisted"
@@ -60,9 +60,6 @@ class MultiCollectionTransactionSpec extends Specification {
 
         and: "initial service request exists"
         multiCollectionService.createServiceRequestWithCoverage(srData, [type: "INITIAL", data: [:]])
-        def initialSRCount = ServiceRequest.count()
-        def initialSnapshotCount = CoverageSnapshot.count()
-        def initialAuditCount = AuditEvent.count()
 
         when: "updating with forced failure"
         multiCollectionService.updateServiceRequestWithFailure("SR-002", updates, true)
@@ -71,9 +68,9 @@ class MultiCollectionTransactionSpec extends Specification {
         thrown(RuntimeException)
 
         and: "failed transaction is rolled back atomically"
-        ServiceRequest.count() == initialSRCount
-        CoverageSnapshot.count() == initialSnapshotCount
-        AuditEvent.count() == initialAuditCount
+        ServiceRequest.count() == old(ServiceRequest.count())
+        CoverageSnapshot.count() == old(CoverageSnapshot.count())
+        AuditEvent.count() == old(AuditEvent.count())
 
         and: "service request update was rolled back"
         def sr = ServiceRequest.findByRequestNumber("SR-002")

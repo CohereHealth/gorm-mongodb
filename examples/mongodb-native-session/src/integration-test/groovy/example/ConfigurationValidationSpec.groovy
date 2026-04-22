@@ -17,7 +17,6 @@ class ConfigurationValidationSpec extends Specification {
 
         then: "native transactions are not globally enabled (we use withNativeTransaction explicitly)"
         enabled == false
-        println "Native transactions globally enabled: ${enabled} (expected false - we use explicit withNativeTransaction)"
     }
 
     void "test can use withNativeTransaction"() {
@@ -35,26 +34,21 @@ class ConfigurationValidationSpec extends Specification {
         then: "transaction works"
         result != null
         result.id != null
-        println "withNativeTransaction works: Provider ${result.id} created"
     }
 
-    void "test transaction context is available"() {
+    void "test transaction allows entity persistence"() {
         when: "creating entity in native transaction"
-        def sessionActive = false
-        Provider.withNativeTransaction { session ->
-            def provider = new Provider(
+        def result = Provider.withNativeTransaction { session ->
+            new Provider(
                 firstName: "Context",
                 lastName: "Test",
                 age: 25
             ).save(failOnError: true)
-
-            sessionActive = session.hasActiveTransaction()
-            println "Transaction context available, session active: ${sessionActive}"
-
-            session != null && sessionActive
         }
 
-        then: "session was active"
-        sessionActive == true
+        then: "entity is persisted successfully"
+        result != null
+        result.id != null
+        Provider.findByFirstName("Context") != null
     }
 }

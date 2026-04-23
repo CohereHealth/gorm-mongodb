@@ -37,21 +37,6 @@ class MixedModeTransactionSpec extends Specification {
         AuditEvent.collection.drop()
     }
 
-    def checkOutsideTransaction(Closure check) {
-        def result = null
-        if (MongoNativeTransactionContext.hasNativeSession()) {
-            def session = MongoNativeTransactionContext.popNativeSession()
-            try {
-                result = check.call()
-            } finally {
-                MongoNativeTransactionContext.pushNativeSession(session)
-            }
-        } else {
-            result = check.call()
-        }
-        return result
-    }
-
     void "test legacy transaction mode creates provider"() {
         when: "creating provider with legacy transaction"
         def provider = mixedModeService.createProviderLegacy([
@@ -160,8 +145,6 @@ class MixedModeTransactionSpec extends Specification {
 
         then: "context is correctly detected"
         wasInNativeContext
-        // Note: With @NativeRollback, the entire test is in a transaction,
-        // so we can only verify that inside withNativeTransaction we detect it
         Provider.findByFirstName("Context") != null
     }
 
@@ -207,5 +190,90 @@ class MixedModeTransactionSpec extends Specification {
 
         and: "audit event was rolled back (native transaction aborted)"
         AuditEvent.findByEntityId(providerId.toString()) == null
+    }
+
+    void "test legacy save persists when subsequent native transaction fails"() {
+        given: "initial counts"
+        def initialProviderCount = Provider.count()
+        def initialAuditCount = AuditEvent.count()
+
+        when: "legacy save followed by native transaction that fails"
+        def providerId = null
+        try {
+            // LEGACY MODE: Provider saved without explicit native transaction
+            def provider = new Provider(
+                firstName: "LegacyFirst",
+                lastName: "Test",
+                age: 30
+            ).save(flush: true, failOnError: true)
+            providerId = provider.id
+
+            // NATIVE TRANSACTION: AuditEvent fails
+            AuditEvent.withNativeTransaction { session ->
+                new AuditEvent(
+                    entityId: providerId.toString(),
+                    entityType: "Provider",
+                    action: "CREATE",
+                    performedBy: "system",
+                    timestamp: new Date()
+                ).save(failOnError: true)
+
+                throw new RuntimeException("Native transaction fails!")
+            }
+        } catch (RuntimeException e) {
+            // Expected - native transaction should rollback
+        }
+
+        then: "audit transaction rolls back"
+        AuditEvent.count() == initialAuditCount
+
+        and: "legacy provider was persisted and not rollback"
+        Provider.get(providerId) != null
+        Provider.count() == initialProviderCount + 1
+        Provider.findByFirstName("LegacyFirst") != null
+    }
+
+    void "test native transaction commits independently before legacy failure"() {
+        given: "initial counts"
+        def initialProviderCount = Provider.count()
+
+        when: "native transaction followed by failing legacy operation"
+        def providerId = null
+        def auditId = null
+        try {
+            // NATIVE TRANSACTION: Provider saved and committed
+            Provider.withNativeTransaction { session ->
+                def provider = new Provider(
+                    firstName: "NativeFirst",
+                    lastName: "Test",
+                    age: 35
+                ).save(failOnError: true)
+                providerId = provider.id
+            }
+
+            // LEGACY MODE: AuditEvent save followed by failure
+            def audit = new AuditEvent(
+                entityId: providerId.toString(),
+                entityType: "Provider",
+                action: "CREATE",
+                performedBy: "system",
+                timestamp: new Date()
+            ).save(flush: true, failOnError: true)
+            auditId = audit.id
+
+            throw new RuntimeException("Legacy operation fails!")
+
+        } catch (RuntimeException e) {
+            // Expected failure
+        }
+
+        then: "native transaction provider persists"
+        Provider.get(providerId) != null
+        Provider.count() == initialProviderCount + 1
+        Provider.findByFirstName("NativeFirst") != null
+
+        and: "audit was saved before exception (MongoDB auto-commit)"
+        AuditEvent.get(auditId) != null
+        AuditEvent.findByEntityType("Provider") != null
     }
 }

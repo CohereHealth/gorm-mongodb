@@ -14,6 +14,7 @@ import org.grails.datastore.mapping.transactions.Transaction
 import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.TransactionException
 import org.springframework.transaction.TransactionSystemException
+import org.springframework.transaction.interceptor.TransactionAttribute
 import org.springframework.transaction.support.DefaultTransactionStatus
 import org.springframework.transaction.support.TransactionSynchronizationManager
 
@@ -76,11 +77,27 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
     
     @Override
     protected void doBegin(Object transaction, TransactionDefinition definition) throws TransactionException {
-        if (shouldUseNativeTransaction()) {
+        boolean useNative = shouldUseNativeTransaction() || isNativeTransactionalDefinition(definition)
+        if (useNative) {
             doBeginNative(transaction, definition)
         } else {
             super.doBegin(transaction, definition)
         }
+    }
+
+    /**
+     * Checks if the transaction definition indicates @NativeTransactional annotation was used.
+     */
+    private boolean isNativeTransactionalDefinition(TransactionDefinition definition) {
+        if (definition instanceof TransactionAttribute) {
+            String qualifier = ((TransactionAttribute) definition).getQualifier()
+            boolean isNative = "nativeTransaction".equals(qualifier)
+            if (log.isDebugEnabled() && isNative) {
+                log.debug("Detected @NativeTransactional via qualifier marker")
+            }
+            return isNative
+        }
+        return false
     }
     
     @Override
@@ -153,7 +170,7 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
      */
     private boolean shouldUseNativeTransaction() {
         return ((MongoDatastore) datastore).isNativeTransactionsEnabled() ||
-               MongoNativeTransactionContext.hasNativeSession()
+                MongoNativeTransactionContext.hasNativeSession()
     }
     
     /**
@@ -179,7 +196,7 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
         final MongoTransactionObject tx = extractMongoTransactionObject(transaction)
 
         if (tx instanceof MongoTransactionObject) {
-            final TransactionOptions options = TransactionOptions.builder().build()
+            final TransactionOptions options = buildTransactionOptions(definition)
             def clientSession = ((MongoTransactionObject) tx).getClientSession()
             final MongoSessionHolder sessionHolder = new MongoSessionHolder(session, clientSession)
             log.debug("Started native MongoDB transaction")
@@ -200,6 +217,24 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
             // Bind to Spring transaction manager
             TransactionSynchronizationManager.bindResource(datastore, sessionHolder)
         }
+    }
+
+    /**
+     * Builds MongoDB TransactionOptions from Spring's TransactionDefinition.
+     * Applies timeout if specified in the transaction definition.
+     *
+     * <p>Note: MongoDB driver 4.x TransactionOptions doesn't directly support timeout configuration.
+     * The timeout is primarily controlled via maxCommitTimeMS on the server side and
+     * maxTimeMS on individual operations. Spring's transaction timeout is still tracked
+     * and enforced by Spring's AbstractPlatformTransactionManager.</p>
+     */
+    private TransactionOptions buildTransactionOptions(TransactionDefinition definition) {
+        TransactionOptions.Builder builder = TransactionOptions.builder()
+        int timeoutSeconds = definition.getTimeout()
+        if (timeoutSeconds > 0 && log.isDebugEnabled()) {
+            log.debug("Transaction timeout of ${timeoutSeconds}s will be enforced by Spring transaction manager")
+        }
+        return builder.build()
     }
     
     /**

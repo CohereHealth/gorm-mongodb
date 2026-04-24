@@ -12,7 +12,7 @@ class MongoTransactionObjectIntegrationSpec extends GormDatastoreSpec {
 
     @Override
     List getDomainClasses() {
-        [Company, Department, Employee]
+        [Company, Department, TxEmployee]
     }
     
     @Override
@@ -51,7 +51,7 @@ class MongoTransactionObjectIntegrationSpec extends GormDatastoreSpec {
     def "test nested service calls with inheritance"() {
         given:
         def companyService = new CompanyService()
-        def employeeService = new EmployeeService()
+        def employeeService = new TxEmployeeService()
         
         when: "nested native transaction calls"
         def result = Company.withNativeTransaction { session ->
@@ -103,12 +103,12 @@ class Company {
 class Department {
     String name
     Company company
-    static hasMany = [employees: Employee]
+    static hasMany = [employees: TxEmployee]
     static belongsTo = [Company]
 }
 
 @Entity
-class Employee {
+class TxEmployee {
     String name
     Department department
     BigDecimal salary
@@ -146,9 +146,9 @@ class CompanyService {
 }
 
 @Service
-class EmployeeService {
+class TxEmployeeService {
     
-    Employee createEmployee(Department department, String name, BigDecimal salary) {
-        return new Employee(name: name, department: department, salary: salary).save(flush: true)
+    TxEmployee createEmployee(Department department, String name, BigDecimal salary) {
+        return new TxEmployee(name: name, department: department, salary: salary).save(flush: true)
     }
 }

@@ -57,7 +57,7 @@ class ReferralServiceIntegrationSpec extends Specification {
         then:
         Referral.findByPatientName('Jane Smith') == null
         audit != null
-        audit.outcome == 'FAILURE'
+        audit.changes.outcome == 'FAILURE'
     }
 
     void "test update referral status with audit"() {
@@ -78,8 +78,8 @@ class ReferralServiceIntegrationSpec extends Specification {
         then:
         Referral.get(referral.id).status == 'ACCEPTED'
         audit != null
-        audit.detail.contains('PENDING')
-        audit.detail.contains('ACCEPTED')
+        audit.changes.detail.contains('PENDING')
+        audit.changes.detail.contains('ACCEPTED')
     }
 
     void "test audit persists when status update rolls back"() {
@@ -102,7 +102,7 @@ class ReferralServiceIntegrationSpec extends Specification {
 
         then:
         audit != null
-        audit.outcome == 'FAILURE'
+        audit.changes.outcome == 'FAILURE'
     }
 
     void "test independent transactions - inner fails outer succeeds"() {
@@ -168,7 +168,7 @@ class ReferralServiceIntegrationSpec extends Specification {
 
         then:
         audit != null
-        audit.detail.contains('Inner Patient')
+        audit.changes.detail.contains('Inner Patient')
     }
 
     void "test new native transaction does not see outer uncommitted writes"() {

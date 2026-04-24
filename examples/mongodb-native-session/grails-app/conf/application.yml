@@ -6,7 +6,7 @@ grails:
         reactor:
             events: false
     mongodb:
-        url: mongodb://localhost:27017/mongodb_native_session_test?replicaSet=myReplicaSet
+        url: mongodb://localhost:27017/mongodb_native_session_test?replicaSet=rs0
 
 logging:
     level:

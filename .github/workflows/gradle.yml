@@ -3,9 +3,11 @@ on:
   push:
     branches:
       - '[6-9]+.[0-9]+.x'
+      - feat/native-mongodb-transactions
   pull_request:
     branches:
       - '[6-9]+.[0-9]+.x'
+      - feat/native-mongodb-transactions
   workflow_dispatch:
     inputs:
       message:
@@ -32,6 +34,13 @@ jobs:
         uses: supercharge/mongodb-github-action@v1.10.0
         with:
           mongodb-version: ${{ matrix.mongodb-version }}
+          mongodb-replica-set: rs0
+      - name: Run Example Integration Tests
+        uses: gradle/gradle-build-action@v3
+        env:
+          GRADLE_ENTERPRISE_ACCESS_KEY: ${{ secrets.GRADLE_ENTERPRISE_ACCESS_KEY }}
+        with:
+          arguments: :examples-mongodb-native-session:integrationTest
       - name: Run Build
         uses: gradle/gradle-build-action@v3
         env:

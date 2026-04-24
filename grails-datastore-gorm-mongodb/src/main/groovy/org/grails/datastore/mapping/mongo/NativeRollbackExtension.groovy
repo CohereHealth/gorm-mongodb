@@ -34,9 +34,11 @@ class NativeRollbackInterceptor implements IMethodInterceptor {
 
         // Detect pre-existing leaked sessions
         if (MongoNativeTransactionContext.hasNativeSession()) {
-            log.warn("Leaked native session detected before test [{}#{}]. Stack depth: {}. Clearing.",
-                invocation.spec.name, invocation.feature.name,
-                MongoNativeTransactionContext.sessionStackDepth)
+            if (log.isWarnEnabled()) {
+                log.warn("Leaked native session detected before test [{}#{}]. Stack depth: {}. Clearing.",
+                    invocation.spec.name, invocation.feature.name,
+                    MongoNativeTransactionContext.sessionStackDepth)
+            }
             MongoNativeTransactionContext.clearNativeSession()
         }
 
@@ -64,9 +66,11 @@ class NativeRollbackInterceptor implements IMethodInterceptor {
 
             // Detect sessions leaked during this test
             if (MongoNativeTransactionContext.hasNativeSession()) {
-                log.warn("Native session leak after test [{}#{}]. Stack depth: {}. Clearing.",
-                    invocation.spec.name, invocation.feature.name,
-                    MongoNativeTransactionContext.sessionStackDepth)
+                if (log.isWarnEnabled()) {
+                    log.warn("Native session leak after test [{}#{}]. Stack depth: {}. Clearing.",
+                        invocation.spec.name, invocation.feature.name,
+                        MongoNativeTransactionContext.sessionStackDepth)
+                }
                 MongoNativeTransactionContext.clearNativeSession()
             }
         }

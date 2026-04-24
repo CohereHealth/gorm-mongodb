@@ -128,6 +128,9 @@ class MongoNativeCodecEntityPersister extends MongoCodecEntityPersister {
 
         if (!isUpdate) {
             if (!cancelInsert(entity, entityAccess)) {
+                if (log.isTraceEnabled()) {
+                    log.trace("Inserting {} [id={}] with ClientSession={}", entity.name, id, clientSession != null)
+                }
                 if (clientSession) {
                     collection.insertOne(clientSession, obj)
                 } else {
@@ -138,6 +141,9 @@ class MongoNativeCodecEntityPersister extends MongoCodecEntityPersister {
             }
         } else {
             if (!cancelUpdate(entity, entityAccess)) {
+                if (log.isTraceEnabled()) {
+                    log.trace("Updating {} [id={}] with ClientSession={}", entity.name, id, clientSession != null)
+                }
                 executeUpdate(entity, obj, id, collection, entityAccess, clientSession)
                 updateCaches(entity, obj, id)
                 firePostUpdateEvent(entity, entityAccess)
@@ -264,12 +270,21 @@ class MongoNativeCodecEntityPersister extends MongoCodecEntityPersister {
     @Override
     protected Object retrieveEntity(PersistentEntity pe, Serializable key) {
         Object o = getFromTPCache(pe, key)
-        if (o != null) return o
+        if (o != null) {
+            if (log.isTraceEnabled()) {
+                log.trace("Cache hit for {} [id={}]", pe.name, key)
+            }
+            return o
+        }
         if (cancelLoad(pe, null)) return null
 
         MongoCollection collection = getMongoCollection(pe)
         Document idQuery = createIdQuery(key)
         ClientSession session = getNativeSession()
+
+        if (log.isTraceEnabled()) {
+            log.trace("Retrieving {} [id={}] with ClientSession={}", pe.name, key, session != null)
+        }
 
         o = session ?
             collection.find(session, idQuery, pe.javaClass).limit(1).first() :
@@ -300,6 +315,10 @@ class MongoNativeCodecEntityPersister extends MongoCodecEntityPersister {
         MongoCollection collection = getMongoCollection(pe)
         ClientSession session = getNativeSession()
         Document idQuery = createIdQuery(id)
+
+        if (log.isTraceEnabled()) {
+            log.trace("Deleting {} [id={}] with ClientSession={}", pe.name, id, session != null)
+        }
 
         if (session) {
             collection.deleteOne(session, idQuery)
@@ -377,6 +396,9 @@ class MongoNativeCodecEntityPersister extends MongoCodecEntityPersister {
             collection.updateOne(query, updateDoc)
 
         if (entity.isVersioned() && result.matchedCount == 0) {
+            if (log.isWarnEnabled()) {
+                log.warn("Optimistic locking failure for {} [id={}]: version mismatch", entity.name, id)
+            }
             throw new OptimisticLockingException(entity, obj)
         }
     }

@@ -141,31 +141,59 @@ class MongoNativeCodecSession extends MongoCodecSession {
                 "Consider removing explicit flush() calls when using native transactions.")
     }
 
-    /**
-     * Executes bulk delete operations with native transaction session support.
-     * 
-     * <p>This method ensures that bulk delete operations are executed within the
-     * active MongoDB transaction session, maintaining ACID properties and proper
-     * isolation levels.</p>
-     *
-     * @param criteria the query criteria for selecting documents to delete
-     * @return the number of documents deleted, or 0 if the operation was not acknowledged
-     */
+    @Override
+    void delete(Object obj) {
+        if (obj == null) return
+
+        PersistentEntity entity = getMappingContext().getPersistentEntity(obj.class.name)
+        if (entity == null) {
+            throw new IllegalArgumentException("Object [$obj] is not a persistent entity")
+        }
+
+        def id = entity.reflector.getIdentifier(obj)
+        if (id == null) {
+            log.debug("Object has no ID, skipping delete")
+            return
+        }
+
+        MongoCollection collection = getCollection(entity)
+        ClientSession session = (ClientSession) getTransaction()?.nativeTransaction
+        Document idQuery = new Document("_id", id)
+
+        if (session) {
+            collection.deleteOne(session, idQuery)
+        } else {
+            collection.deleteOne(idQuery)
+        }
+
+        clear(obj)
+        log.debug("Successfully deleted entity: {} with id: {}", entity.name, id)
+    }
+
+    @Override
+    void delete(Iterable objects) {
+        if (objects == null) return
+
+        for (Object obj : objects) {
+            delete(obj)
+        }
+    }
+
     @Override
     long deleteAll(QueryableCriteria criteria) {
         final PersistentEntity entity = criteria.getPersistentEntity()
         log.debug("Executing bulk deleteAll for entity: {}", entity.name)
-        
+
         final Document nativeQuery = buildNativeDocumentQueryFromCriteria(criteria, entity)
         final MongoCollection collection = getCollection(entity)
-        
+
         ClientSession session = (ClientSession) getTransaction()?.nativeTransaction
         log.trace("Using ClientSession for deleteAll: {}", session != null)
-        
-        final DeleteResult deleteResult = session ? 
-            collection.deleteMany(session, nativeQuery) : 
+
+        final DeleteResult deleteResult = session ?
+            collection.deleteMany(session, nativeQuery) :
             collection.deleteMany(nativeQuery)
-            
+
         long deletedCount = deleteResult.wasAcknowledged() ? deleteResult.deletedCount : 0
         log.debug("Bulk deleteAll completed for entity: {}, deleted: {} documents", entity.name, deletedCount)
         return deletedCount

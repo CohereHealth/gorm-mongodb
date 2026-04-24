@@ -1,74 +1,153 @@
 package org.grails.datastore.mapping.mongo
 
-import com.mongodb.bulk.BulkWriteResult
 import grails.gorm.tests.GormDatastoreSpec
 import grails.gorm.tests.Person
 
+/**
+ * Tests for bulk write operations via GORM's saveAll/deleteAll APIs.
+ * Within a native transaction these go through
+ * {@link org.grails.datastore.mapping.mongo.engine.MongoNativeCodecEntityPersister#persistEntities}
+ * and {@link org.grails.datastore.mapping.mongo.engine.MongoNativeCodecEntityPersister#deleteEntities},
+ * which batch writes into a single {@code bulkWrite} call via
+ * {@link org.grails.datastore.mapping.mongo.engine.NativeBulkWriter}.
+ */
 class BulkOperationsSpec extends GormDatastoreSpec {
 
-    void "test bulk insert operations"() {
+    void "test saveAll inserts multiple new entities in native transaction"() {
         given:
         def people = [
-            new Person(firstName: "John", lastName: "Doe"),
-            new Person(firstName: "Jane", lastName: "Smith"),
-            new Person(firstName: "Bob", lastName: "Johnson")
+            new Person(firstName: "John", lastName: "Doe", age: 30),
+            new Person(firstName: "Jane", lastName: "Smith", age: 25),
+            new Person(firstName: "Bob", lastName: "Johnson", age: 40)
         ]
-        
+
         when:
-        BulkWriteResult result = BulkOperations.insertAll(Person, people)
-        
+        List ids = null
+        Person.withNativeTransaction {
+            ids = Person.saveAll(people)
+        }
+
         then:
-        result.insertedCount == 3
+        ids.size() == 3
+        ids.every { it != null }
         Person.count() == 3
     }
 
-    void "test bulk save operations"() {
+    void "test saveAll with mix of inserts and updates in native transaction"() {
         given:
-        def person1 = new Person(firstName: "John", lastName: "Doe").save(flush: true)
-        def person2 = new Person(firstName: "Jane", lastName: "Smith")
-        def entities = [person1, person2]
-        
+        def existing = new Person(firstName: "Existing", lastName: "User", age: 30).save(flush: true)
+        def newPerson = new Person(firstName: "New", lastName: "User", age: 25)
+
         when:
-        person1.firstName = "Johnny"
-        BulkWriteResult result = BulkOperations.saveAll(Person, entities)
-        
+        existing.age = 35
+        Person.withNativeTransaction {
+            Person.saveAll([existing, newPerson])
+        }
+
         then:
-        result.matchedCount + result.insertedCount == 2
-        Person.get(person1.id).firstName == "Johnny"
         Person.count() == 2
+        Person.get(existing.id).age == 35
+        Person.findByFirstName("New") != null
     }
 
-    void "test bulk delete operations"() {
+    void "test deleteAll removes multiple entities in native transaction"() {
         given:
-        def person1 = new Person(firstName: "John", lastName: "Doe").save(flush: true)
-        def person2 = new Person(firstName: "Jane", lastName: "Smith").save(flush: true)
-        def ids = [person1.id, person2.id]
-        
+        def p1 = new Person(firstName: "Del1", lastName: "Bulk", age: 20).save(flush: true)
+        def p2 = new Person(firstName: "Del2", lastName: "Bulk", age: 21).save(flush: true)
+        def p3 = new Person(firstName: "Del3", lastName: "Bulk", age: 22).save(flush: true)
+
         when:
-        BulkWriteResult result = BulkOperations.deleteAll(Person, ids)
-        
+        Person.withNativeTransaction {
+            Person.deleteAll([p1, p2, p3])
+        }
+
         then:
-        result.deletedCount == 2
         Person.count() == 0
     }
 
-    void "test bulk operations with transactions"() {
-        when:
-        def people = [
-            new Person(firstName: "John", lastName: "Doe"),
-            new Person(firstName: "Jane", lastName: "Smith")
-        ]
-        
-        Person.withTransaction { status ->
-            BulkOperations.insertAll(Person, people)
+    void "test saveAll rollback on native transaction failure"() {
+        given:
+        def initialCount = Person.count()
+        def people = (1..5).collect {
+            new Person(firstName: "Rollback$it", lastName: "Test", age: 25)
         }
-        
+
+        when:
+        Person.withNativeTransaction {
+            Person.saveAll(people)
+            throw new RuntimeException("force rollback")
+        }
+
         then:
-        Person.count() == 2
+        thrown(RuntimeException)
+        Person.count() == initialCount
     }
 
-    @Override
-    List getDomainClasses() {
-        [Person]
+    void "test deleteAll rollback on native transaction failure"() {
+        given:
+        def people = (1..3).collect {
+            new Person(firstName: "Keep$it", lastName: "Test", age: 30).save(flush: true)
+        }
+        def initialCount = Person.count()
+
+        when:
+        Person.withNativeTransaction {
+            Person.deleteAll(people)
+            throw new RuntimeException("force rollback")
+        }
+
+        then:
+        thrown(RuntimeException)
+        Person.count() == initialCount
+    }
+
+    void "test saveAll skips clean entities"() {
+        given:
+        def existing = new Person(firstName: "Clean", lastName: "Entity", age: 30).save(flush: true)
+        def newPerson = new Person(firstName: "Fresh", lastName: "Entity", age: 25)
+
+        when: "saveAll with a clean (unchanged) existing entity and a new entity"
+        Person.withNativeTransaction {
+            Person.saveAll([existing, newPerson])
+        }
+
+        then: "clean entity is skipped, new entity is inserted"
+        Person.count() == 2
+        Person.findByFirstName("Fresh") != null
+    }
+
+    void "test saveAll with large batch in native transaction"() {
+        given:
+        def people = (1..200).collect {
+            new Person(firstName: "Batch$it", lastName: "Large", age: 20 + (it % 50))
+        }
+
+        when:
+        Person.withNativeTransaction {
+            Person.saveAll(people)
+        }
+
+        then:
+        Person.countByLastName("Large") == 200
+    }
+
+    void "test saveAll and deleteAll in same native transaction"() {
+        given:
+        def toDelete = (1..3).collect {
+            new Person(firstName: "Old$it", lastName: "Mixed", age: 50).save(flush: true)
+        }
+        def toInsert = (1..3).collect {
+            new Person(firstName: "New$it", lastName: "Mixed", age: 25)
+        }
+
+        when:
+        Person.withNativeTransaction {
+            Person.deleteAll(toDelete)
+            Person.saveAll(toInsert)
+        }
+
+        then:
+        Person.countByLastName("Mixed") == 3
+        Person.findAllByLastName("Mixed").every { it.firstName.startsWith("New") }
     }
 }

@@ -732,8 +732,14 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
                 }
                 
                 if (useNativeSession) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Using MongoNativeCodecSession (immediate execution)");
+                    }
                     return new MongoNativeCodecSession(this, getMappingContext(), getApplicationEventPublisher(), false);
                 } else {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Using MongoCodecSession (flush-based execution)");
+                    }
                     return new MongoCodecSession(this, getMappingContext(), getApplicationEventPublisher(), false);
                 }
             } else {

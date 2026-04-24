@@ -189,6 +189,16 @@ class MongoNativeTransactionContext {
     static boolean hasNativeSession() {
         return !NATIVE_SESSION_STACK.get().empty()
     }
+
+    /**
+     * Returns the current depth of the native session stack.
+     * Useful for diagnosing session leaks in tests.
+     *
+     * @return the number of sessions on the stack
+     */
+    static int getSessionStackDepth() {
+        return NATIVE_SESSION_STACK.get().size()
+    }
     
     /**
      * Checks if the current thread is within an active native MongoDB transaction.

@@ -4,7 +4,7 @@ import com.mongodb.client.MongoClient
 import org.grails.datastore.mapping.mongo.MongoDatastore
 import org.grails.datastore.mapping.mongo.MongoDatastoreTransactionManager
 import org.grails.datastore.mapping.mongo.NativeTransactionalAttributeSource
-import org.springframework.boot.test.context.runner.ApplicationContextRunner
+import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.Ordered
@@ -20,16 +20,17 @@ class MongoNativeTransactionAopConfigurationSpec extends Specification {
 
     void "test configuration loads when MongoDatastoreTransactionManager is present"() {
         given:
-        ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-            .withUserConfiguration(TestConfig, MongoNativeTransactionAopConfiguration)
+        def context = new AnnotationConfigApplicationContext(TestConfig, MongoNativeTransactionAopConfiguration)
 
         when:
-        def context = contextRunner.run { ctx -> ctx }
+        def attributeSource = context.getBean(NativeTransactionalAttributeSource)
+        def interceptor = context.getBean(TransactionInterceptor)
+        def advisor = context.getBean(BeanFactoryTransactionAttributeSourceAdvisor)
 
         then:
-        context.getBean(NativeTransactionalAttributeSource) != null
-        context.getBean(TransactionInterceptor) != null
-        context.getBean(BeanFactoryTransactionAttributeSourceAdvisor) != null
+        attributeSource != null
+        interceptor != null
+        advisor != null
 
         cleanup:
         context.close()
@@ -37,16 +38,17 @@ class MongoNativeTransactionAopConfigurationSpec extends Specification {
 
     void "test configuration can be loaded standalone"() {
         given:
-        ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-            .withUserConfiguration(TestConfig, MongoNativeTransactionAopConfiguration)
+        def context = new AnnotationConfigApplicationContext(TestConfig, MongoNativeTransactionAopConfiguration)
 
         when:
-        def context = contextRunner.run { ctx -> ctx }
+        def hasAttributeSource = context.containsBean("nativeTransactionalAttributeSource")
+        def hasInterceptor = context.containsBean("nativeTransactionInterceptor")
+        def hasAdvisor = context.containsBean("nativeTransactionAdvisor")
 
         then: "All beans are present when MongoDatastoreTransactionManager exists"
-        context.containsBean("nativeTransactionalAttributeSource")
-        context.containsBean("nativeTransactionInterceptor")
-        context.containsBean("nativeTransactionAdvisor")
+        hasAttributeSource
+        hasInterceptor
+        hasAdvisor
 
         cleanup:
         context.close()
@@ -54,11 +56,9 @@ class MongoNativeTransactionAopConfigurationSpec extends Specification {
 
     void "test attribute source bean is created"() {
         given:
-        ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-            .withUserConfiguration(TestConfig, MongoNativeTransactionAopConfiguration)
+        def context = new AnnotationConfigApplicationContext(TestConfig, MongoNativeTransactionAopConfiguration)
 
         when:
-        def context = contextRunner.run { ctx -> ctx }
         NativeTransactionalAttributeSource attributeSource = context.getBean(NativeTransactionalAttributeSource)
 
         then:
@@ -71,11 +71,9 @@ class MongoNativeTransactionAopConfigurationSpec extends Specification {
 
     void "test transaction interceptor is configured correctly"() {
         given:
-        ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-            .withUserConfiguration(TestConfig, MongoNativeTransactionAopConfiguration)
+        def context = new AnnotationConfigApplicationContext(TestConfig, MongoNativeTransactionAopConfiguration)
 
         when:
-        def context = contextRunner.run { ctx -> ctx }
         TransactionInterceptor interceptor = context.getBean(TransactionInterceptor)
 
         then:
@@ -90,11 +88,9 @@ class MongoNativeTransactionAopConfigurationSpec extends Specification {
 
     void "test advisor is configured with correct priority"() {
         given:
-        ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-            .withUserConfiguration(TestConfig, MongoNativeTransactionAopConfiguration)
+        def context = new AnnotationConfigApplicationContext(TestConfig, MongoNativeTransactionAopConfiguration)
 
         when:
-        def context = contextRunner.run { ctx -> ctx }
         BeanFactoryTransactionAttributeSourceAdvisor advisor = context.getBean(BeanFactoryTransactionAttributeSourceAdvisor)
 
         then:
@@ -108,16 +104,16 @@ class MongoNativeTransactionAopConfigurationSpec extends Specification {
 
     void "test advisor uses correct attribute source"() {
         given:
-        ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-            .withUserConfiguration(TestConfig, MongoNativeTransactionAopConfiguration)
+        def context = new AnnotationConfigApplicationContext(TestConfig, MongoNativeTransactionAopConfiguration)
 
         when:
-        def context = contextRunner.run { ctx -> ctx }
         BeanFactoryTransactionAttributeSourceAdvisor advisor = context.getBean(BeanFactoryTransactionAttributeSourceAdvisor)
         NativeTransactionalAttributeSource attributeSource = context.getBean(NativeTransactionalAttributeSource)
+        // Get the interceptor and verify it uses the correct attribute source
+        TransactionInterceptor interceptor = (TransactionInterceptor) advisor.getAdvice()
 
         then:
-        advisor.getTransactionAttributeSource() == attributeSource
+        interceptor.getTransactionAttributeSource() == attributeSource
 
         cleanup:
         context.close()
@@ -127,12 +123,17 @@ class MongoNativeTransactionAopConfigurationSpec extends Specification {
     static class TestConfig {
         @Bean
         MongoDatastore mongoDatastore() {
-            return Mock(MongoDatastore)
+            // Create a minimal in-memory datastore for testing
+            def props = [
+                'grails.mongodb.url': 'mongodb://localhost:27017/test',
+                'grails.mongodb.databaseName': 'test'
+            ]
+            return new MongoDatastore(props)
         }
 
         @Bean
-        MongoClient mongoClient() {
-            return Mock(MongoClient)
+        MongoClient mongoClient(MongoDatastore datastore) {
+            return datastore.mongoClient
         }
 
         @Bean

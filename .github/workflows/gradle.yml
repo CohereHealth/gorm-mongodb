@@ -37,7 +37,7 @@ jobs:
         env:
           GRADLE_ENTERPRISE_ACCESS_KEY: ${{ secrets.GRADLE_ENTERPRISE_ACCESS_KEY }}
         with:
-          arguments: build -Dgeb.env=chromeHeadless -x examples-grails3-hibernate5-mongodb:integrationTest -x examples-mongodb-native-session:integrationTest
+          arguments: build -Dgeb.env=chromeHeadless -x examples-grails3-hibernate5-mongodb:build -x examples-grails3-mongodb-database-per-tenant:build -x examples-grails3-mongodb:build -x examples-mongodb-native-session:build -x examples-springboot-mongodb:build -x examples-test-data-service:build
       - name: Run Example Integration Tests
         uses: gradle/gradle-build-action@v3
         env:

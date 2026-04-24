@@ -17,8 +17,8 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
         when: "within native transaction"
         def session = null
         def persister = null
-        Person.withTransaction { status ->
-            session = DatastoreUtils.getSession(mongoDatastore)
+        Person.withNativeTransaction { status ->
+            session = DatastoreUtils.getSession(mongoDatastore, true)
             def entity = session.mappingContext.getPersistentEntity(Person.name)
             persister = session.getPersister(entity)
         }
@@ -34,7 +34,7 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
 
         when: "inserting within native transaction"
         Person savedPerson = null
-        Person.withTransaction { status ->
+        Person.withNativeTransaction { status ->
             savedPerson = new Person(firstName: "Immediate", lastName: "Insert", age: 25)
             savedPerson.save(flush: false)
         }
@@ -53,7 +53,7 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
         def originalVersion = person.version
 
         when: "updating within native transaction"
-        Person.withTransaction { status ->
+        Person.withNativeTransaction { status ->
             person.age = 31
             person.save(flush: false)
         }
@@ -70,7 +70,7 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
         def initialCount = Person.count()
 
         when: "deleting within native transaction"
-        Person.withTransaction { status ->
+        Person.withNativeTransaction { status ->
             person.delete(flush: false)
         }
 
@@ -85,7 +85,7 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
         def initialVersion = person.version
 
         when: "multiple updates in native transaction"
-        Person.withTransaction { status ->
+        Person.withNativeTransaction { status ->
             person.age = 21
             person.save()
 
@@ -114,19 +114,19 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
         given: "person saved in transaction"
         def person = new Person(firstName: "Concurrent", lastName: "Test", age: 30).save(flush: true)
         def originalVersion = person.version
-        
+
         when: "concurrent modification scenario"
-        Person.withTransaction { status ->
+        Person.withNativeTransaction { status ->
             // Load same person in different context
             def otherPerson = Person.get(person.id)
             otherPerson.age = 31
             otherPerson.save()
-            
+
             // Now try to save original person
             person.age = 32
             person.save()
         }
-        
+
         then: "should handle concurrent modification appropriately"
         def finalPerson = Person.get(person.id)
         finalPerson.version > originalVersion
@@ -135,21 +135,21 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
     void "test error recovery in persister"() {
         given: "initial count"
         def initialCount = Person.count()
-        
+
         when: "error occurs during save"
         def errorCaught = false
         try {
-            Person.withTransaction { status ->
+            Person.withNativeTransaction { status ->
                 def person = new Person(firstName: "Error", lastName: "Test", age: 30)
                 person.save()
-                
+
                 // Force an error after save
                 throw new RuntimeException("Simulated error")
             }
         } catch (RuntimeException e) {
             errorCaught = true
         }
-        
+
         then: "error should be caught and transaction rolled back"
         errorCaught
         Person.count() == initialCount

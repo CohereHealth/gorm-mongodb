@@ -15,15 +15,15 @@ class LargeObjectTransactionSpec extends Specification {
         def result = largeObjectService.createLargeServiceRequest(100)
 
         then: "service request is created"
-        result.result.serviceRequest != null
-        result.result.snapshot != null
+        result.serviceRequest != null
+        result.snapshot != null
 
         and: "latency is recorded"
         result.latencyMs > 0
         println "100KB object creation latency: ${result.latencyMs}ms"
 
         and: "entities are persisted"
-        ServiceRequest.findByRequestNumber(result.result.serviceRequest.requestNumber) != null
+        ServiceRequest.findByRequestNumber(result.serviceRequest.requestNumber) != null
     }
 
     void "test create 500KB service request"() {
@@ -31,15 +31,15 @@ class LargeObjectTransactionSpec extends Specification {
         def result = largeObjectService.createLargeServiceRequest(500)
 
         then: "service request is created"
-        result.result.serviceRequest != null
-        result.result.snapshot != null
+        result.serviceRequest != null
+        result.snapshot != null
 
         and: "latency is recorded"
         result.latencyMs > 0
         println "500KB object creation latency: ${result.latencyMs}ms"
 
         and: "metadata size is approximately correct"
-        def metadata = result.result.serviceRequest.metadata
+        def metadata = result.serviceRequest.metadata
         metadata != null
         metadata.size() > 0
     }
@@ -49,15 +49,15 @@ class LargeObjectTransactionSpec extends Specification {
         def result = largeObjectService.createLargeServiceRequest(1024)
 
         then: "service request is created"
-        result.result.serviceRequest != null
-        result.result.snapshot != null
+        result.serviceRequest != null
+        result.snapshot != null
 
         and: "latency is recorded"
         result.latencyMs > 0
         println "1MB object creation latency: ${result.latencyMs}ms"
 
         and: "large object is persisted correctly"
-        def reloaded = ServiceRequest.findByRequestNumber(result.result.serviceRequest.requestNumber)
+        def reloaded = ServiceRequest.findByRequestNumber(result.serviceRequest.requestNumber)
         reloaded != null
         reloaded.metadata != null
     }
@@ -87,18 +87,18 @@ class LargeObjectTransactionSpec extends Specification {
         def result = largeObjectService.createLargeServiceRequest(500)
 
         then: "both collections have data"
-        result.result.serviceRequest != null
-        result.result.snapshot != null
+        result.serviceRequest != null
+        result.snapshot != null
 
         and: "service request has large metadata"
-        result.result.serviceRequest.metadata.size() > 0
+        result.serviceRequest.metadata.size() > 0
 
         and: "snapshot has half-sized metadata"
-        result.result.snapshot.coverageData.size() > 0
+        result.snapshot.coverageData.size() > 0
 
         and: "both are persisted"
-        ServiceRequest.findByRequestNumber(result.result.serviceRequest.requestNumber) != null
-        CoverageSnapshot.findByServiceRequestNumber(result.result.serviceRequest.requestNumber) != null
+        ServiceRequest.findByRequestNumber(result.serviceRequest.requestNumber) != null
+        CoverageSnapshot.findByServiceRequestNumber(result.serviceRequest.requestNumber) != null
     }
 
     void "test optimistic locking with large objects"() {
@@ -123,7 +123,9 @@ class LargeObjectTransactionSpec extends Specification {
     void "test concurrent updates with optimistic locking"() {
         given: "large service request"
         def createResult = largeObjectService.createLargeServiceRequest(500)
-        def requestNumber = createResult.result.serviceRequest.requestNumber
+        def requestNumber = createResult.serviceRequest.requestNumber
+        def initialStatus = createResult.serviceRequest.status
+        def initialVersion = createResult.serviceRequest.version
 
         when: "simulating concurrent updates"
         def results = largeObjectService.simulateConcurrentUpdates(requestNumber, 3)
@@ -141,6 +143,13 @@ class LargeObjectTransactionSpec extends Specification {
         and: "within the transaction, the service request still exists"
         def finalSR = ServiceRequest.findByRequestNumber(requestNumber)
         finalSR != null
+
+        and: "status has changed from initial value"
+        finalSR.status != initialStatus
+
+        and: "version has been incremented by number of successful updates"
+        finalSR.version >= initialVersion + 1  // At least one update succeeded
+        println "Version incremented from ${initialVersion} to ${finalSR.version}"
     }
 
     void "test latency comparison across object sizes"() {

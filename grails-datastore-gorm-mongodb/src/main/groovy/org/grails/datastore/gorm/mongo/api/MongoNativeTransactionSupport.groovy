@@ -68,19 +68,27 @@ trait MongoNativeTransactionSupport<D> {
         def mongoClient = mongoDatastore.mongoClient
         ClientSession clientSession = null
         MongoNativeCodecSession nativeCodecSession = null
-        
+        SessionHolder holder = null
+        boolean createdHolder = false
+
         try {
             clientSession = mongoClient.startSession()
             clientSession.startTransaction()
             MongoNativeTransactionContext.pushNativeSession(clientSession)
-            
+
             // Push a native session onto the holder so getCurrentSession() returns it
             nativeCodecSession = new MongoNativeCodecSession(mongoDatastore, mongoDatastore.mappingContext, mongoDatastore.applicationEventPublisher, false)
-            SessionHolder holder = (SessionHolder) TransactionSynchronizationManager.getResource(mongoDatastore)
-            if (holder != null) {
+            holder = (SessionHolder) TransactionSynchronizationManager.getResource(mongoDatastore)
+
+            if (holder == null) {
+                // No existing holder, create one and bind it
+                holder = new SessionHolder(nativeCodecSession)
+                TransactionSynchronizationManager.bindResource(mongoDatastore, holder)
+                createdHolder = true
+            } else {
                 holder.addSession(nativeCodecSession)
             }
-            
+
             D result = (D) callable.call(clientSession)
             clientSession.commitTransaction()
             return result
@@ -94,12 +102,17 @@ trait MongoNativeTransactionSupport<D> {
             throw e
         } finally {
             MongoNativeTransactionContext.popNativeSession()
+
             if (nativeCodecSession != null) {
-                SessionHolder holder = (SessionHolder) TransactionSynchronizationManager.getResource(mongoDatastore)
-                if (holder != null) {
+                if (createdHolder) {
+                    // We created the holder, so unbind it
+                    TransactionSynchronizationManager.unbindResource(mongoDatastore)
+                } else if (holder != null) {
+                    // Just remove our session from existing holder
                     holder.removeSession(nativeCodecSession)
                 }
             }
+
             clientSession?.close()
         }
     }
@@ -115,6 +128,8 @@ trait MongoNativeTransactionSupport<D> {
         def mongoClient = mongoDatastore.mongoClient
         ClientSession clientSession = null
         MongoNativeCodecSession nativeCodecSession = null
+        SessionHolder holder = null
+        boolean createdHolder = false
 
         try {
             clientSession = mongoClient.startSession()
@@ -122,8 +137,14 @@ trait MongoNativeTransactionSupport<D> {
             MongoNativeTransactionContext.pushNativeSession(clientSession)
 
             nativeCodecSession = new MongoNativeCodecSession(mongoDatastore, mongoDatastore.mappingContext, mongoDatastore.applicationEventPublisher, false)
-            SessionHolder holder = (SessionHolder) TransactionSynchronizationManager.getResource(mongoDatastore)
-            if (holder != null) {
+            holder = (SessionHolder) TransactionSynchronizationManager.getResource(mongoDatastore)
+
+            if (holder == null) {
+                // No existing holder, create one and bind it
+                holder = new SessionHolder(nativeCodecSession)
+                TransactionSynchronizationManager.bindResource(mongoDatastore, holder)
+                createdHolder = true
+            } else {
                 holder.addSession(nativeCodecSession)
             }
 
@@ -140,12 +161,17 @@ trait MongoNativeTransactionSupport<D> {
             throw e
         } finally {
             MongoNativeTransactionContext.popNativeSession()
+
             if (nativeCodecSession != null) {
-                SessionHolder holder = (SessionHolder) TransactionSynchronizationManager.getResource(mongoDatastore)
-                if (holder != null) {
+                if (createdHolder) {
+                    // We created the holder, so unbind it
+                    TransactionSynchronizationManager.unbindResource(mongoDatastore)
+                } else if (holder != null) {
+                    // Just remove our session from existing holder
                     holder.removeSession(nativeCodecSession)
                 }
             }
+
             clientSession?.close()
         }
     }

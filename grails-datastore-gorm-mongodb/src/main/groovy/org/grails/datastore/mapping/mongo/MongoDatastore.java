@@ -749,78 +749,12 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
     }
 
     /**
-     * Runs the initialization sequence for the MongoDB datastore. This includes:
-     * - Setting up mapping context listeners for entity lifecycle events
-     * - Initializing type converters for data transformation
-     * - Building database indexes based on domain class mappings
-     * - Creating and configuring the GORM enhancer with native transaction support
-     * - Registering validation constraints and event listeners
-     * - Setting up multi-tenancy support if configured
+     * Runs the initialization sequence for the MongoDB datastore.
+     * Initializes the GORM enhancer with native transaction support.
      *
-     * <p>The initialization process varies based on configuration:
-     * <ul>
-     *   <li>Native transactions: Enables MongoDB 4.0+ multi-document ACID transactions</li>
-     *   <li>Codec engine: Uses BSON codecs for efficient serialization</li>
-     *   <li>Multi-tenancy: Configures tenant-aware data access</li>
-     *   <li>Validation: Sets up GORM validation constraints</li>
-     * </ul>
-     *
-     * <p>Configuration examples:
-     * <pre>{@code
-     * // Enable native transactions (requires MongoDB 4.0+ with replica set)
-     * grails.mongodb.nativeTransactions = true
-     *
-     * // Configure connection
-     * grails.mongodb.host = "localhost"
-     * grails.mongodb.port = 27017
-     * grails.mongodb.databaseName = "myapp"
-     *
-     * // Enable codec engine for better performance
-     * grails.mongodb.engine = "codec"
-     * }</pre>
-     *
-     * <p>Usage in domain classes:
-     * <pre>{@code
-     * @Entity
-     * class Person {
-     *     String name
-     *     Integer age
-     *
-     *     static constraints = {
-     *         name blank: false
-     *         age min: 0
-     *     }
-     *
-     *     static mapping = {
-     *         collection "people"
-     *         database "myapp"
-     *     }
-     * }
-     *
-     * // Using native transactions
-     * Person.withNativeTransaction { session ->
-     *     new Person(name: "John", age: 30).save()
-     *     new Address(person: person, street: "123 Main St").save()
-     *     // Both operations committed atomically
-     * }
-     * }</pre>
-     *
-     * <p>The enhancer provides MongoDB-specific methods:
-     * <ul>
-     *   <li>{@code findByGeoWithin()}: Geospatial queries</li>
-     *   <li>{@code aggregate()}: MongoDB aggregation pipeline</li>
-     *   <li>{@code withNativeTransaction()}: Native MongoDB transactions</li>
-     *   <li>{@code collection()}: Direct access to MongoDB collection</li>
-     * </ul>
-     *
-     * @param settings The MongoDB connection source settings containing database configuration,
-     *                 transaction settings, and performance options
-     * @return The configured MongoGormEnhancer instance that provides GORM dynamic methods
-     *         and MongoDB-specific functionality to domain classes
-     * @throws ConfigurationException if MongoDB connection cannot be established or
-     *                                configuration is invalid
+     * @param settings The MongoDB connection source settings
+     * @return The configured MongoGormEnhancer instance
      * @see MongoGormEnhancer
-     * @see MongoTransactionManager
      * @see MongoConnectionSourceSettings
      * @since 1.0
      */
@@ -1179,7 +1113,8 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
     
     /**
      * Executes the given closure within a MongoDB native transaction.
-     * 
+     *
+     * @param <T> The return type
      * @param callable The closure to execute within the transaction
      * @return The result of the closure execution
      */
@@ -1231,6 +1166,10 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
     /**
      * Executes a closure within a new independent native MongoDB transaction (REQUIRES_NEW).
      * Always starts a fresh ClientSession regardless of any existing native transaction.
+     *
+     * @param <T> The return type
+     * @param callable The closure to execute within the transaction
+     * @return The result of the closure execution
      */
     public <T> T withNewNativeTransaction(Closure<T> callable) {
         com.mongodb.client.ClientSession session = null;

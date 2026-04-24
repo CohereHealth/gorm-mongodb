@@ -294,19 +294,26 @@ class MongoNativeInstanceApi<D> extends GormInstanceApi<D> implements MongoNativ
 
     /**
      * Executes a closure within the appropriate transaction context.
-     * 
+     *
      * @param closure the closure to execute
      * @return the result of the closure execution
      */
     private <T> T executeInNativeTransaction(Closure<T> closure) {
-        def session = datastore.currentSession
-        
-        if (session.hasTransaction()) {
+        // Check if a native session is already active
+        if (MongoNativeTransactionContext.hasNativeSession()) {
+            log.trace("Executing within existing native session for {}", persistentClass.simpleName)
+            return closure.call()
+        }
+
+        // Try to get current session if one exists
+        def session = org.grails.datastore.mapping.core.DatastoreUtils.getSession(datastore, false)
+        if (session != null && session.hasTransaction()) {
             log.trace("Executing within existing transaction for {}", persistentClass.simpleName)
             return closure.call()
-        } else {
-            log.trace("Starting new native transaction for {}", persistentClass.simpleName)
-            return (T) withNativeTransaction(closure)
         }
+
+        // Start a new native transaction
+        log.trace("Starting new native transaction for {}", persistentClass.simpleName)
+        return (T) withNativeTransaction(closure)
     }
 }

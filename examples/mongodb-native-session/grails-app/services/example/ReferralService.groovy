@@ -16,8 +16,12 @@ class ReferralService {
                     action: 'CREATE_REFERRAL',
                     entityType: 'Referral',
                     entityId: referral.id?.toString(),
-                    detail: "Referral from ${referralData.fromFacility} to ${referralData.toFacility}",
-                    outcome: 'SUCCESS'
+                    performedBy: 'SYSTEM',
+                    timestamp: new Date(),
+                    changes: [
+                        detail: "Referral from ${referralData.fromFacility} to ${referralData.toFacility}",
+                        outcome: 'SUCCESS'
+                    ]
                 ).save(failOnError: true)
             }
 
@@ -34,8 +38,12 @@ class ReferralService {
                     action: 'CREATE_REFERRAL_ATTEMPT',
                     entityType: 'Referral',
                     entityId: referral.id?.toString(),
-                    detail: "Attempted referral from ${referralData.fromFacility} to ${referralData.toFacility}",
-                    outcome: 'FAILURE'
+                    performedBy: 'SYSTEM',
+                    timestamp: new Date(),
+                    changes: [
+                        detail: "Attempted referral from ${referralData.fromFacility} to ${referralData.toFacility}",
+                        outcome: 'FAILURE'
+                    ]
                 ).save(failOnError: true)
             }
 
@@ -55,8 +63,12 @@ class ReferralService {
                     action: 'UPDATE_REFERRAL_STATUS',
                     entityType: 'Referral',
                     entityId: referralId.toString(),
-                    detail: "Status changed from ${oldStatus} to ${newStatus}",
-                    outcome: 'SUCCESS'
+                    performedBy: 'SYSTEM',
+                    timestamp: new Date(),
+                    changes: [
+                        detail: "Status changed from ${oldStatus} to ${newStatus}",
+                        outcome: 'SUCCESS'
+                    ]
                 ).save(failOnError: true)
             }
 
@@ -74,8 +86,12 @@ class ReferralService {
                     action: 'UPDATE_REFERRAL_STATUS_ATTEMPT',
                     entityType: 'Referral',
                     entityId: referralId.toString(),
-                    detail: "Attempted status change from ${oldStatus} to ${newStatus}",
-                    outcome: 'FAILURE'
+                    performedBy: 'SYSTEM',
+                    timestamp: new Date(),
+                    changes: [
+                        detail: "Attempted status change from ${oldStatus} to ${newStatus}",
+                        outcome: 'FAILURE'
+                    ]
                 ).save(failOnError: true)
             }
 
@@ -96,8 +112,13 @@ class ReferralService {
                     results.second = new AuditEvent(
                         action: 'INDEPENDENT_CREATE',
                         entityType: 'Referral',
-                        detail: "Independent referral from ${referralData2.fromFacility} to ${referralData2.toFacility}",
-                        outcome: 'SUCCESS'
+                        entityId: results.first.id?.toString() ?: 'UNKNOWN',
+                        performedBy: 'SYSTEM',
+                        timestamp: new Date(),
+                        changes: [
+                            detail: "Independent referral from ${referralData2.fromFacility} to ${referralData2.toFacility}",
+                            outcome: 'SUCCESS'
+                        ]
                     ).save(failOnError: true)
 
                     if (failSecond) {
@@ -118,8 +139,13 @@ class ReferralService {
                 new AuditEvent(
                     action: 'INNER_COMMIT_TEST',
                     entityType: 'Referral',
-                    detail: "Inner commit for ${referralData.patientName}",
-                    outcome: 'SUCCESS'
+                    entityId: referralData.patientName ?: 'UNKNOWN',
+                    performedBy: 'SYSTEM',
+                    timestamp: new Date(),
+                    changes: [
+                        detail: "Inner commit for ${referralData.patientName}",
+                        outcome: 'SUCCESS'
+                    ]
                 ).save(failOnError: true)
             }
 

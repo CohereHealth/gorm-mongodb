@@ -61,6 +61,11 @@ abstract class AbstractMongoConnectionSourceSettings extends ConnectionSourceSet
     boolean stateless = false
 
     /**
+     * Whether to enable native MongoDB transactions
+     */
+    boolean nativeTransactionsEnabled = false
+
+    /**
      * Whether to use the decimal128 type for BigDecimal values
      *
      * @see org.bson.types.Decimal128

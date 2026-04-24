@@ -1,22 +1,25 @@
 package org.grails.datastore.mapping.mongo
 
+import grails.gorm.annotation.Entity
 import grails.gorm.tests.GormDatastoreSpec
 import grails.gorm.tests.Person
+import org.grails.datastore.mapping.core.DatastoreUtils
 import org.grails.datastore.mapping.core.OptimisticLockingException
 import org.grails.datastore.mapping.mongo.engine.MongoNativeCodecEntityPersister
-import spock.lang.Specification
 
 class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
 
     void "test native persister is used for native transactions"() {
         when:
         def persister = null
-        Person.withTransaction { status ->
+        Person.withNativeTransaction { status ->
             def person = new Person(firstName: "John", lastName: "Doe")
-            persister = session.getOrCreatePersister(Person)
+            def session = DatastoreUtils.getSession(mongoDatastore, true)
+            def entity = session.mappingContext.getPersistentEntity(Person.name)
+            persister = session.getPersister(entity)
             person.save()
         }
-        
+
         then:
         persister instanceof MongoNativeCodecEntityPersister
     }
@@ -100,11 +103,12 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
     }
 }
 
+@Entity
 class VersionedBook {
     String id
     String title
     Long version
-    
+
     static mapping = {
         collection "versioned_books"
         version true

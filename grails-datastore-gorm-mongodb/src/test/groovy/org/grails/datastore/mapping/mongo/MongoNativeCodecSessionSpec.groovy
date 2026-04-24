@@ -18,9 +18,9 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
         when: "a native transaction is started"
         def session = null
         def tx = null
-        Person.withTransaction { status ->
-            session = DatastoreUtils.getSession(mongoDatastore)
-            tx = session.getCurrentTransaction()
+        Person.withNativeTransaction { status ->
+            session = DatastoreUtils.getSession(mongoDatastore, true)
+            tx = session.getTransaction()
         }
 
         then: "session should be MongoNativeCodecSession"
@@ -36,7 +36,7 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
 
         when: "saving within native transaction"
         Person savedPerson = null
-        Person.withTransaction { status ->
+        Person.withNativeTransaction { status ->
             savedPerson = new Person(firstName: "John", lastName: "Doe", age: 30).save(flush: false)
         }
 
@@ -53,7 +53,7 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
         def person = new Person(firstName: "Jane", lastName: "Smith", age: 25).save(flush: true)
 
         when: "updating within native transaction"
-        Person.withTransaction { status ->
+        Person.withNativeTransaction { status ->
             person.age = 26
             person.save(flush: false)
         }
@@ -69,7 +69,7 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
         def initialCount = Person.count()
 
         when: "deleting within native transaction"
-        Person.withTransaction { status ->
+        Person.withNativeTransaction { status ->
             person.delete(flush: false)
         }
 
@@ -81,8 +81,8 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
     void "test flush method logs warning and does nothing"() {
         when: "calling flush in native transaction"
         def session = null
-        Person.withTransaction { status ->
-            session = DatastoreUtils.getSession(mongoDatastore)
+        Person.withNativeTransaction { status ->
+            session = DatastoreUtils.getSession(mongoDatastore, true)
             session.flush()
         }
 
@@ -100,7 +100,7 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
 
         when: "bulk delete within native transaction"
         long deletedCount = 0
-        Person.withTransaction { status ->
+        Person.withNativeTransaction { status ->
             deletedCount = Person.where { lastName == "Test" }.deleteAll()
         }
 
@@ -118,7 +118,7 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
 
         when: "bulk update within native transaction"
         long updatedCount = 0
-        Person.withTransaction { status ->
+        Person.withNativeTransaction { status ->
             updatedCount = Person.where { lastName == "Test" }.updateAll(age: 35)
         }
 
@@ -130,10 +130,10 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
     void "test transaction rollback behavior"() {
         given: "initial count"
         def initialCount = Person.count()
-        
+
         when: "transaction is rolled back"
         try {
-            Person.withTransaction { status ->
+            Person.withNativeTransaction { status ->
                 new Person(firstName: "Rollback", lastName: "Test", age: 40).save()
                 status.setRollbackOnly()
                 throw new RuntimeException("Force rollback")
@@ -141,7 +141,7 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
         } catch (RuntimeException e) {
             // Expected
         }
-        
+
         then: "changes should be rolled back"
         Person.count() == initialCount
         Person.findByFirstName("Rollback") == null
@@ -153,7 +153,7 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
         def pet = new Pet(name: "Fluffy", owner: person).save(flush: true)
 
         when: "bulk update with association"
-        Person.withTransaction { status ->
+        Person.withNativeTransaction { status ->
             Pet.where { name == "Fluffy" }.updateAll(owner: person)
         }
 
@@ -169,12 +169,12 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
         def results = []
 
         // First transaction
-        Person.withTransaction { status1 ->
+        Person.withNativeTransaction { status1 ->
             def person1 = new Person(firstName: "Concurrent1", lastName: "Test", age: 25).save()
             results << person1.id
 
             // Nested transaction (should use same session)
-            Person.withTransaction { status2 ->
+            Person.withNativeTransaction { status2 ->
                 def person2 = new Person(firstName: "Concurrent2", lastName: "Test", age: 26).save()
                 results << person2.id
             }
@@ -202,8 +202,8 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
     void "test session type within native transaction"() {
         when: "within native transaction"
         def nativeSession = null
-        Person.withTransaction { status ->
-            nativeSession = DatastoreUtils.getSession(mongoDatastore)
+        Person.withNativeTransaction { status ->
+            nativeSession = DatastoreUtils.getSession(mongoDatastore, true)
         }
 
         then: "should get MongoNativeCodecSession"
@@ -216,7 +216,7 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
         def originalVersion = person.version
 
         when: "updating in native transaction"
-        Person.withTransaction { status ->
+        Person.withNativeTransaction { status ->
             person.age = 31
             person.save()
         }
@@ -232,21 +232,21 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
     void "test error handling in native transactions"() {
         given: "initial count"
         def initialCount = Person.count()
-        
+
         when: "error occurs in transaction"
         def errorOccurred = false
         try {
-            Person.withTransaction { status ->
+            Person.withNativeTransaction { status ->
                 new Person(firstName: "Error", lastName: "Test", age: 30).save()
                 throw new RuntimeException("Simulated error")
             }
         } catch (RuntimeException e) {
             errorOccurred = true
         }
-        
+
         then: "error should be caught"
         errorOccurred
-        
+
         and: "transaction should be rolled back"
         Person.count() == initialCount
         Person.findByFirstName("Error") == null
@@ -255,8 +255,8 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
     void "test collection access with native session"() {
         when: "accessing collection within native transaction"
         def collection = null
-        Person.withTransaction { status ->
-            def session = DatastoreUtils.getSession(mongoDatastore)
+        Person.withNativeTransaction { status ->
+            def session = DatastoreUtils.getSession(mongoDatastore, true)
             def entity = session.mappingContext.getPersistentEntity(Person.name)
             collection = session.getCollection(entity)
         }

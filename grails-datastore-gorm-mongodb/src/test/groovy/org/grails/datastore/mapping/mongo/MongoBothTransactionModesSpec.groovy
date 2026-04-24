@@ -35,18 +35,21 @@ class MongoBothTransactionModesSpec extends GormDatastoreSpec {
     }
     
     def "test mixed usage - selective within regular transaction"() {
+        given: "initial count"
+        def initialCount = Product.count()
+
         when: "regular transaction with selective native transaction inside"
         Product.withTransaction { status ->
             new Product(name: "Keyboard").save(flush: true)
-            
+
             Product.withNativeTransaction { nativeSession ->
                 new Product(name: "Monitor").save(flush: true)
                 return Product.isInNativeTransaction()
             }
         }
-        
+
         then:
-        Product.count() == 4 // 2 from previous test + 2 new
+        Product.count() == initialCount + 2
     }
 }
 

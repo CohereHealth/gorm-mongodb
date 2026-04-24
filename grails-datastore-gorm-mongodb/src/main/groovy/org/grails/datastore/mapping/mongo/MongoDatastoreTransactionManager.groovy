@@ -63,11 +63,11 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
     @Override
     protected Object doGetTransaction() throws TransactionException {
         if (shouldUseNativeTransaction()) {
-            def existingResource = TransactionSynchronizationManager.getResource(datastore)
+            def existingResource = TransactionSynchronizationManager.getResource(getDatastore())
             if (existingResource instanceof MongoSessionHolder) {
                 return new MongoTransactionObject((MongoSessionHolder) existingResource)
             }
-            Session session = datastore.connect()
+            Session session = getDatastore().connect()
             ClientSession clientSession = mongoClient.startSession()
             return new MongoTransactionObject(new MongoSessionHolder(session, clientSession))
         }
@@ -113,7 +113,7 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
     @Override
     protected Object doSuspend(Object transaction) throws TransactionException {
         if (transaction instanceof MongoTransactionObject) {
-            TransactionSynchronizationManager.unbindResource(datastore)
+            TransactionSynchronizationManager.unbindResource(getDatastore())
             return ((MongoTransactionObject) transaction).mongoSessionHolder
         }
         return super.doSuspend(transaction)
@@ -122,7 +122,7 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
     @Override
     protected void doResume(Object transaction, Object suspendedResources) throws TransactionException {
         if (suspendedResources instanceof MongoSessionHolder) {
-            TransactionSynchronizationManager.bindResource(datastore, suspendedResources)
+            TransactionSynchronizationManager.bindResource(getDatastore(), suspendedResources)
         } else {
             super.doResume(transaction, suspendedResources)
         }
@@ -152,7 +152,7 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
      * 2. Active native transaction context
      */
     private boolean shouldUseNativeTransaction() {
-        return ((MongoDatastore) datastore).isNativeTransactionsEnabled() ||
+        return ((MongoDatastore) getDatastore()).isNativeTransactionsEnabled() ||
                MongoNativeTransactionContext.hasNativeSession()
     }
     
@@ -175,7 +175,7 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
      * Begin native transaction
      */
     private void doBeginNative(Object transaction, TransactionDefinition definition) {
-        final Session session = datastore.connect()
+        final Session session = getDatastore().connect()
         final MongoTransactionObject tx = extractMongoTransactionObject(transaction)
 
         if (tx instanceof MongoTransactionObject) {
@@ -190,7 +190,7 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
             }
 
             // Bind to Spring transaction manager
-            TransactionSynchronizationManager.bindResource(datastore, sessionHolder)
+            TransactionSynchronizationManager.bindResource(getDatastore(), sessionHolder)
         } else {
             final SessionHolder sessionHolder = new SessionHolder(session)
             log.debug("Started standard MongoDB transaction")
@@ -198,7 +198,7 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
             sessionHolder.setTransaction(tx)
 
             // Bind to Spring transaction manager
-            TransactionSynchronizationManager.bindResource(datastore, sessionHolder)
+            TransactionSynchronizationManager.bindResource(getDatastore(), sessionHolder)
         }
     }
     
@@ -231,7 +231,7 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
      */
     private void doCleanupNative(MongoTransactionObject transaction) {
         // Unbind from Spring transaction manager
-        TransactionSynchronizationManager.unbindResourceIfPossible(datastore)
+        TransactionSynchronizationManager.unbindResourceIfPossible(getDatastore())
         
         transaction.mongoSessionHolder?.getClientSession()?.close()
 
@@ -248,13 +248,13 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
 
 
     ClientSession getClientSession() {
-        MongoSessionHolder resourceHolder = (MongoSessionHolder) TransactionSynchronizationManager.getResource(datastore)
+        MongoSessionHolder resourceHolder = (MongoSessionHolder) TransactionSynchronizationManager.getResource(getDatastore())
         MongoTransactionObject txObject = new MongoTransactionObject(resourceHolder)
         return txObject != null ? txObject.getClientSession() : null
     }
 
     private MongoSessionHolder newResourceHolder(TransactionDefinition definition, ClientSessionOptions options) {
-        MongoSessionHolder resourceHolder = new MongoSessionHolder(datastore.connect(), newClientSession(options));
+        MongoSessionHolder resourceHolder = new MongoSessionHolder(getDatastore().connect(), newClientSession(options));
         return resourceHolder;
     }
 

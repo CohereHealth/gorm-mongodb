@@ -49,6 +49,10 @@ class ConfigurationValidationSpec extends Specification {
         then: "entity is persisted successfully"
         result != null
         result.id != null
-        Provider.findByFirstName("Context") != null
+
+        and: "queried entity matches created entity"
+        def found = Provider.findByFirstName("Context")
+        found != null
+        found.id == result.id
     }
 }

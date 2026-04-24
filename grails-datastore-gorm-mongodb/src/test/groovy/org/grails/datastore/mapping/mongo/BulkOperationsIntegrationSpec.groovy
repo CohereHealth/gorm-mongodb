@@ -4,17 +4,19 @@ import com.mongodb.MongoBulkWriteException
 import grails.gorm.tests.GormDatastoreSpec
 import grails.gorm.tests.Person
 import grails.gorm.tests.Pet
-import org.grails.datastore.mapping.core.DatastoreUtils
 
 /**
- * Integration tests for bulk operations functionality covering both native
- * and regular transaction contexts.
+ * Integration tests for bulk write operations within native transactions.
+ * Exercises {@code Person.saveAll} / {@code Person.deleteAll} which route through
+ * {@link org.grails.datastore.mapping.mongo.engine.MongoNativeCodecEntityPersister#persistEntities}
+ * and {@link org.grails.datastore.mapping.mongo.engine.MongoNativeCodecEntityPersister#deleteEntities},
+ * batching writes via {@link org.grails.datastore.mapping.mongo.engine.NativeBulkWriter}.
  */
 class BulkOperationsIntegrationSpec extends GormDatastoreSpec {
 
-    void "test bulk insert operations"() {
-        given: "list of persons to insert"
-        def persons = (1..100).collect { 
+    void "test bulk insert via saveAll in native transaction"() {
+        given:
+        def people = (1..100).collect {
             new Person(firstName: "Bulk$it", lastName: "Insert", age: 20 + (it % 50))
         }
         def initialCount = Person.count()
@@ -46,14 +48,12 @@ class BulkOperationsIntegrationSpec extends GormDatastoreSpec {
         result.insertedCount == 50
     }
 
-    void "test bulk save operations"() {
-        given: "mix of new and existing persons"
-        def existing = new Person(firstName: "Existing", lastName: "Save", age: 30).save(flush: true)
-        def persons = [
-            existing,
-            new Person(firstName: "New1", lastName: "Save", age: 31),
-            new Person(firstName: "New2", lastName: "Save", age: 32)
-        ]
+    void "test bulk mixed insert and update via saveAll"() {
+        given:
+        def existing = new Person(firstName: "Existing", lastName: "Mixed", age: 30).save(flush: true)
+        def newPeople = (1..5).collect {
+            new Person(firstName: "New$it", lastName: "Mixed", age: 25)
+        }
         def initialCount = Person.count()
         
         when: "performing bulk save"
@@ -116,11 +116,10 @@ class BulkOperationsIntegrationSpec extends GormDatastoreSpec {
         thrown(MongoBulkWriteException)
     }
 
-    void "test bulk operations with associations"() {
-        given: "persons with pets"
+    void "test bulk saveAll with associations"() {
+        given:
         def owner1 = new Person(firstName: "Owner1", lastName: "Pet", age: 30).save(flush: true)
         def owner2 = new Person(firstName: "Owner2", lastName: "Pet", age: 35).save(flush: true)
-        
         def pets = [
             new Pet(name: "Dog1", owner: owner1),
             new Pet(name: "Cat1", owner: owner2),
@@ -159,13 +158,15 @@ class BulkOperationsIntegrationSpec extends GormDatastoreSpec {
         Person.countByLastName("Test") == 0
     }
 
-    void "test bulk operations performance comparison"() {
-        given: "large dataset"
-        def bulkPersons = (1..500).collect { 
-            new Person(firstName: "Bulk$it", lastName: "Performance", age: 30)
+    void "test large batch saveAll in native transaction"() {
+        given:
+        def people = (1..500).collect {
+            new Person(firstName: "Large$it", lastName: "Batch", age: 25)
         }
-        def individualPersons = (1..500).collect { 
-            new Person(firstName: "Individual$it", lastName: "Performance", age: 30)
+
+        when:
+        Person.withNativeTransaction {
+            Person.saveAll(people)
         }
         
         when: "timing bulk vs individual operations"

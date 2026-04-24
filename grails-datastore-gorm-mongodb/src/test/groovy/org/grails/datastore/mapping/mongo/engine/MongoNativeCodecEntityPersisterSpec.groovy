@@ -1,15 +1,11 @@
 package org.grails.datastore.mapping.mongo.engine
 
-import com.mongodb.client.ClientSession
 import grails.gorm.tests.GormDatastoreSpec
 import grails.gorm.tests.Person
-import org.grails.datastore.mapping.core.DatastoreUtils
-import org.grails.datastore.mapping.mongo.MongoNativeCodecSession
-import org.springframework.dao.OptimisticLockingFailureException
 
 /**
- * Integration tests for MongoNativeCodecEntityPersister covering immediate execution,
- * optimistic locking, and native transaction behavior.
+ * Tests for native persister behavior: immediate execution, optimistic locking,
+ * and bulk write semantics — all verified through the GORM API.
  */
 class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
 
@@ -47,8 +43,8 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
         Person.get(savedPerson.id) != null
     }
 
-    void "test immediate update execution with optimistic locking"() {
-        given: "existing person"
+    void "test update executes immediately with version increment"() {
+        given:
         def person = new Person(firstName: "Update", lastName: "Test", age: 30).save(flush: true)
         def originalVersion = person.version
 
@@ -63,8 +59,8 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
         Person.get(person.id).age == 31
     }
 
-    void "test immediate delete execution"() {
-        given: "existing person"
+    void "test delete executes immediately"() {
+        given:
         def person = new Person(firstName: "Delete", lastName: "Test", age: 35).save(flush: true)
         def personId = person.id
         def initialCount = Person.count()
@@ -79,8 +75,8 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
         Person.count() == initialCount - 1
     }
 
-    void "test version increment on successful update"() {
-        given: "person with initial version"
+    void "test multiple version increments in one transaction"() {
+        given:
         def person = new Person(firstName: "Version", lastName: "Test", age: 20).save(flush: true)
         def initialVersion = person.version
 
@@ -132,8 +128,11 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
         finalPerson.version > originalVersion
     }
 
-    void "test error recovery in persister"() {
-        given: "initial count"
+    void "test deleteAll batches deletes in native transaction"() {
+        given:
+        def people = (1..20).collect {
+            new Person(firstName: "BatchDel$it", lastName: "Persist", age: 30).save(flush: true)
+        }
         def initialCount = Person.count()
 
         when: "error occurs during save"
@@ -153,5 +152,15 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
         then: "error should be caught and transaction rolled back"
         errorCaught
         Person.count() == initialCount
+    }
+
+    void "test outside native transaction uses regular path"() {
+        when:
+        def person = new Person(firstName: "Regular", lastName: "Path", age: 30)
+        person.save()
+        session.flush()
+
+        then:
+        Person.countByFirstName("Regular") == 1
     }
 }

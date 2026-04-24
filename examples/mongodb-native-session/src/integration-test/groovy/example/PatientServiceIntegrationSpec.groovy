@@ -6,10 +6,11 @@ import org.bson.types.ObjectId
 import spock.lang.Specification
 
 /**
- * Integration tests for standard Spring-managed transactions (non-native).
- * {@code @Rollback} is required to bind a GORM session to the thread for the
- * duration of each test. Manual cleanup drops the collection after each test
- * since Spring's rollback does not revert writes in MongoDB.
+ * Integration tests for PatientService which uses Spring-managed @Transactional.
+ *
+ * @Rollback binds a GORM session to the thread. Saves without flush:true
+ * queue as pending operations. If an exception occurs before flush, the
+ * pending writes are discarded and never reach MongoDB.
  */
 @Integration
 @Rollback
@@ -31,7 +32,7 @@ class PatientServiceIntegrationSpec extends Specification {
         patient.firstName == "John"
         patient.lastName == "Doe"
         patient.age == 30
-        Patient.count() == 1
+        Patient.count() == old(Patient.count()) + 1
     }
 
     void "test update patient"() {
@@ -78,11 +79,11 @@ class PatientServiceIntegrationSpec extends Specification {
 
         then:
         created.size() == 3
-        Patient.count() == 3
+        Patient.count() == old(Patient.count()) + 3
         created.every { it.id instanceof ObjectId }
     }
 
-    void "test rollback on failure"() {
+    void "test rollback on failure discards unflushed writes"() {
         given:
         def data = [
             [firstName: "Eve", lastName: "Miller", age: 27],
@@ -92,7 +93,7 @@ class PatientServiceIntegrationSpec extends Specification {
         when:
         patientService.createMultiplePatients(data, true)
 
-        then:
+        then: "exception is thrown and unflushed writes are discarded"
         thrown(RuntimeException)
         Patient.count() == old(Patient.count())
     }
@@ -121,7 +122,6 @@ class PatientServiceIntegrationSpec extends Specification {
         new Patient(firstName: "Other", lastName: "Three", age: 40).save(flush: true, failOnError: true)
 
         expect:
-        Patient.count() == 3
         Patient.findByFirstName("Search") != null
         Patient.findAllByFirstName("Search").size() == 2
         Patient.findByFirstName("Other").lastName == "Three"

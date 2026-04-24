@@ -3,8 +3,12 @@ package org.grails.datastore.mapping.mongo.engine
 import com.mongodb.client.ClientSession
 import com.mongodb.client.MongoClient
 import com.mongodb.client.MongoCollection
+import com.mongodb.client.model.DeleteOneModel
 import com.mongodb.client.model.FindOneAndUpdateOptions
+import com.mongodb.client.model.InsertOneModel
 import com.mongodb.client.model.ReturnDocument
+import com.mongodb.client.model.UpdateOneModel
+import com.mongodb.client.model.UpdateOptions
 import groovy.transform.CompileStatic
 import groovy.util.logging.Slf4j
 import org.bson.Document
@@ -124,6 +128,9 @@ class MongoNativeCodecEntityPersister extends MongoCodecEntityPersister {
 
         if (!isUpdate) {
             if (!cancelInsert(entity, entityAccess)) {
+                if (log.isTraceEnabled()) {
+                    log.trace("Inserting {} [id={}] with ClientSession={}", entity.name, id, clientSession != null)
+                }
                 if (clientSession) {
                     collection.insertOne(clientSession, obj)
                 } else {
@@ -134,6 +141,9 @@ class MongoNativeCodecEntityPersister extends MongoCodecEntityPersister {
             }
         } else {
             if (!cancelUpdate(entity, entityAccess)) {
+                if (log.isTraceEnabled()) {
+                    log.trace("Updating {} [id={}] with ClientSession={}", entity.name, id, clientSession != null)
+                }
                 executeUpdate(entity, obj, id, collection, entityAccess, clientSession)
                 updateCaches(entity, obj, id)
                 firePostUpdateEvent(entity, entityAccess)
@@ -144,14 +154,137 @@ class MongoNativeCodecEntityPersister extends MongoCodecEntityPersister {
     }
 
     @Override
+    protected List<Serializable> persistEntities(PersistentEntity pe, @SuppressWarnings("rawtypes") Iterable objs) {
+        NativeBulkWriter writer = new NativeBulkWriter(getMongoCollection(pe), getNativeSession())
+        ProxyFactory proxyFactory = getProxyFactory()
+        SessionImplementor<Object> si = (SessionImplementor<Object>) session
+
+        List<Serializable> ids = []
+        // entity access + metadata needed for post-write events/caching
+        List<Object[]> postOps = [] // [obj, entityAccess, id, isInsert(boolean)]
+
+        for (raw in objs) {
+            Object obj = proxyFactory.unwrap(raw)
+            Serializable id = getObjectIdentifier(obj)
+            boolean idIsNull = id == null
+            boolean isUpdate = !idIsNull
+            boolean assignedId = isAssignedId(pe)
+
+            if (isNotUpdateForAssignedId(pe, obj, isUpdate, assignedId, si)) {
+                isUpdate = false
+            }
+            if (isUpdate && !getSession().isDirty(obj)) {
+                ids << id
+                continue
+            }
+
+            EntityAccess entityAccess = createEntityAccess(pe, obj)
+            if (!assignedId && idIsNull) {
+                id = generateIdentifier(pe)
+                if (id != null) {
+                    entityAccess.setIdentifier(id)
+                } else {
+                    throw new DataIntegrityViolationException("Failed to generate identifier for [$obj]")
+                }
+            } else if (idIsNull) {
+                throw new DataIntegrityViolationException("Entity [$obj] has null identifier with manual assignment strategy")
+            } else if (assignedId && !si.isStateless(pe)) {
+                isUpdate = mongoSession.contains(obj)
+            }
+
+            processAssociations(mongoSession, pe, entityAccess, obj, proxyFactory, isUpdate)
+            ids << id
+
+            if (!isUpdate) {
+                if (!cancelInsert(pe, entityAccess)) {
+                    writer.add(new InsertOneModel(obj))
+                    postOps << ([obj, entityAccess, id, true] as Object[])
+                }
+            } else {
+                if (!cancelUpdate(pe, entityAccess)) {
+                    def updateDoc = encodeUpdate(obj, entityAccess)
+                    if (updateDoc) {
+                        Document query = createVersionedIdQuery(pe, id, entityAccess)
+                        writer.add(new UpdateOneModel(query, updateDoc, new UpdateOptions().upsert(false)))
+                        postOps << ([obj, entityAccess, id, false] as Object[])
+                    }
+                }
+            }
+        }
+
+        if (writer.hasWrites()) {
+            writer.execute()
+
+            for (op in postOps) {
+                updateCaches(pe, op[0], (Serializable) op[2])
+                if ((boolean) op[3]) {
+                    firePostInsertEvent(pe, (EntityAccess) op[1])
+                } else {
+                    firePostUpdateEvent(pe, (EntityAccess) op[1])
+                }
+            }
+        }
+
+        return ids
+    }
+
+    @Override
+    protected void deleteEntities(PersistentEntity pe, @SuppressWarnings("rawtypes") Iterable objects) {
+        NativeBulkWriter writer = new NativeBulkWriter(getMongoCollection(pe), getNativeSession())
+        ProxyFactory proxyFactory = getProxyFactory()
+        List<Object[]> postOps = [] // [obj, entityAccess]
+
+        for (raw in objects) {
+            Object obj
+            Serializable id
+            if (proxyFactory.isProxy(raw)) {
+                id = proxyFactory.getIdentifier(raw)
+                obj = proxyFactory.unwrap(raw)
+            } else {
+                obj = raw
+                id = getObjectIdentifier(obj)
+            }
+            if (id == null) continue
+
+            EntityAccess entityAccess = createEntityAccess(pe, obj)
+            if (cancelDelete(pe, entityAccess)) continue
+
+            writer.add(new DeleteOneModel(createIdQuery(id)))
+            postOps << ([obj, entityAccess] as Object[])
+        }
+
+        if (writer.hasWrites()) {
+            writer.execute()
+
+            for (op in postOps) {
+                mongoSession.clear(op[0])
+                firePostDeleteEvent(pe, (EntityAccess) op[1])
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Single-entity read / delete (immediate execution with ClientSession)
+    // ------------------------------------------------------------------
+
+    @Override
     protected Object retrieveEntity(PersistentEntity pe, Serializable key) {
         Object o = getFromTPCache(pe, key)
-        if (o != null) return o
+        if (o != null) {
+            if (log.isTraceEnabled()) {
+                log.trace("Cache hit for {} [id={}]", pe.name, key)
+            }
+            return o
+        }
         if (cancelLoad(pe, null)) return null
 
         MongoCollection collection = getMongoCollection(pe)
         Document idQuery = createIdQuery(key)
         ClientSession session = getNativeSession()
+
+        if (log.isTraceEnabled()) {
+            log.trace("Retrieving {} [id={}] with ClientSession={}", pe.name, key, session != null)
+        }
 
         o = session ?
             collection.find(session, idQuery, pe.javaClass).limit(1).first() :
@@ -182,6 +315,10 @@ class MongoNativeCodecEntityPersister extends MongoCodecEntityPersister {
         MongoCollection collection = getMongoCollection(pe)
         ClientSession session = getNativeSession()
         Document idQuery = createIdQuery(id)
+
+        if (log.isTraceEnabled()) {
+            log.trace("Deleting {} [id={}] with ClientSession={}", pe.name, id, session != null)
+        }
 
         if (session) {
             collection.deleteOne(session, idQuery)
@@ -237,29 +374,31 @@ class MongoNativeCodecEntityPersister extends MongoCodecEntityPersister {
         return super.generateIdentifier(persistentEntity)
     }
 
+    private Document createVersionedIdQuery(PersistentEntity pe, Serializable id, EntityAccess entityAccess) {
+        Document query = new Document("_id", id)
+        if (pe.isVersioned()) {
+            query.append("version", entityAccess.getProperty(pe.version.name))
+        }
+        return query
+    }
+
     private void executeUpdate(PersistentEntity entity, Object obj, Serializable id,
                                MongoCollection collection, EntityAccess entityAccess, ClientSession session) {
-        def currentVersion = null
-        if (entity.isVersioned()) {
-            currentVersion = entityAccess.getProperty(entity.version.name)
-        }
+        // Build the version query BEFORE encodeUpdate, because encodeUpdate
+        // increments the in-memory version via incrementEntityVersion(access).
+        Document query = createVersionedIdQuery(entity, id, entityAccess)
 
         def updateDoc = encodeUpdate(obj, entityAccess)
         if (!updateDoc) return
-
-        Document query = new Document("_id", id)
-        if (entity.isVersioned()) {
-            if (currentVersion == null) {
-                currentVersion = entityAccess.getProperty(entity.version.name)
-            }
-            query.append("version", currentVersion)
-        }
 
         def result = session ?
             collection.updateOne(session, query, updateDoc) :
             collection.updateOne(query, updateDoc)
 
         if (entity.isVersioned() && result.matchedCount == 0) {
+            if (log.isWarnEnabled()) {
+                log.warn("Optimistic locking failure for {} [id={}]: version mismatch", entity.name, id)
+            }
             throw new OptimisticLockingException(entity, obj)
         }
     }

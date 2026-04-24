@@ -310,7 +310,9 @@ class MongoNativeCodecSession extends MongoCodecSession {
         
         Document queryDoc = mongoQuery.mongoQuery
         if (log.isTraceEnabled()) {
-            log.trace("Built native query document: {}", queryDoc.toJson())
+            if (log.isTraceEnabled()) {
+                log.trace("Built native query document: {}", queryDoc.toJson())
+            }
         }
         
         return queryDoc

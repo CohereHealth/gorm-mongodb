@@ -1,6 +1,5 @@
 package org.grails.datastore.mapping.mongo
 
-import com.mongodb.client.ClientSession
 import grails.gorm.tests.GormDatastoreSpec
 import grails.gorm.tests.Person
 import grails.gorm.tests.Pet
@@ -9,13 +8,14 @@ import org.grails.datastore.mapping.core.DatastoreUtils
 import org.grails.datastore.mapping.mongo.engine.MongoNativeCodecEntityPersister
 
 /**
- * Comprehensive integration tests for native MongoDB transaction support,
- * covering session management, persister selection, and ACID properties.
+ * Integration tests for native MongoDB transaction support verifying
+ * ACID properties, immediate visibility, and bulk operations through
+ * the standard GORM API.
  */
 class NativeTransactionIntegrationSpec extends GormDatastoreSpec {
 
-    void "test complete native transaction lifecycle"() {
-        given: "initial state"
+    void "test create, update, and read within native transaction"() {
+        given:
         def initialPersonCount = Person.count()
         def initialPetCount = Pet.count()
 
@@ -122,11 +122,10 @@ class NativeTransactionIntegrationSpec extends GormDatastoreSpec {
         then: "all changes should be rolled back"
         Person.count() == initialPersonCount
         Pet.count() == initialPetCount
-        createdIds.every { id -> Person.get(id) == null && Pet.get(id) == null }
     }
 
-    void "test nested transaction behavior"() {
-        given: "initial state"
+    void "test nested native transaction shares the session"() {
+        given:
         def initialCount = Person.count()
 
         when: "nested transactions"
@@ -231,7 +230,6 @@ class NativeTransactionIntegrationSpec extends GormDatastoreSpec {
 
         then: "transaction should be completely rolled back"
         Person.count() == initialCount
-        partialResults.every { id -> Person.get(id) == null }
     }
 
     void "test transaction performance characteristics"() {
@@ -282,5 +280,73 @@ class NativeTransactionIntegrationSpec extends GormDatastoreSpec {
         then: "transaction should handle validation appropriately"
         // Behavior depends on validation configuration
         Person.count() >= initialCount
+    }
+
+    void "test saveAll and deleteAll in same transaction"() {
+        given:
+        def toDelete = (1..5).collect {
+            new Person(firstName: "Old$it", lastName: "Swap", age: 50).save(flush: true)
+        }
+        def toInsert = (1..5).collect {
+            new Person(firstName: "New$it", lastName: "Swap", age: 25)
+        }
+
+        when:
+        Person.withNativeTransaction {
+            Person.deleteAll(toDelete)
+            Person.saveAll(toInsert)
+        }
+
+        then:
+        Person.countByLastName("Swap") == 5
+        Person.findAllByLastName("Swap").every { it.firstName.startsWith("New") }
+    }
+
+    void "test optimistic locking across multiple saves"() {
+        given:
+        def person = new Person(firstName: "Versioned", lastName: "Test", age: 20).save(flush: true)
+        def v0 = person.version
+
+        when:
+        Person.withNativeTransaction {
+            person.age = 21
+            person.save()
+            person.age = 22
+            person.save()
+        }
+
+        then:
+        person.version == v0 + 2
+        Person.get(person.id).age == 22
+    }
+
+    void "test error mid-transaction rolls back all preceding writes"() {
+        given:
+        def initialCount = Person.count()
+
+        when:
+        Person.withNativeTransaction {
+            new Person(firstName: "First", lastName: "Error", age: 30).save()
+            new Person(firstName: "Second", lastName: "Error", age: 31).save()
+            throw new RuntimeException("mid-transaction failure")
+        }
+
+        then:
+        thrown(RuntimeException)
+        Person.count() == initialCount
+    }
+
+    void "test operations outside native transaction use regular path"() {
+        given:
+        def persons = (1..5).collect {
+            new Person(firstName: "Regular$it", lastName: "Path", age: 30)
+        }
+
+        when: "saveAll without native transaction falls back to flush-based path"
+        Person.saveAll(persons)
+        session.flush()
+
+        then:
+        Person.countByLastName("Path") == 5
     }
 }

@@ -726,14 +726,20 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
                 boolean hasNativeSession = MongoNativeTransactionContext.hasNativeSession();
                 boolean useNativeSession = nativeTransactionsEnabled || hasNativeSession;
                 
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Creating session - nativeTransactionsEnabled: {}, hasNativeSession: {}, useNativeSession: {}", 
+                if (LOG.isTraceEnabled()) {
+                    LOG.trace("Creating session - nativeTransactionsEnabled: {}, hasNativeSession: {}, useNativeSession: {}", 
                              nativeTransactionsEnabled, hasNativeSession, useNativeSession);
                 }
                 
                 if (useNativeSession) {
+                    if (LOG.isTraceEnabled()) {
+                        LOG.trace("Using MongoNativeCodecSession (immediate execution)");
+                    }
                     return new MongoNativeCodecSession(this, getMappingContext(), getApplicationEventPublisher(), false);
                 } else {
+                    if (LOG.isTraceEnabled()) {
+                        LOG.trace("Using MongoCodecSession (flush-based execution)");
+                    }
                     return new MongoCodecSession(this, getMappingContext(), getApplicationEventPublisher(), false);
                 }
             } else {

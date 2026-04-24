@@ -9,7 +9,7 @@ class MongoSpringBootTransactionSpec extends GormDatastoreSpec {
 
     @Override
     List getDomainClasses() {
-        [Employee]
+        [Staff]
     }
     
     @Override
@@ -21,69 +21,66 @@ class MongoSpringBootTransactionSpec extends GormDatastoreSpec {
 
     def "test Spring @Transactional with native transactions"() {
         given:
-        def employeeService = new EmployeeService()
+        def staffService = new StaffService()
         
         when: "using @Transactional service method"
-        def result = employeeService.createEmployeeWithDepartment("John", "Engineering")
+        def result = staffService.createStaffWithRole("John", "Engineering")
         
         then:
         result.name == "John"
-        result.department == "Engineering"
-        Employee.count() == 1
+        result.role == "Engineering"
+        Staff.count() == 1
         
         when: "exception in @Transactional method"
         try {
-            employeeService.createEmployeeWithError("Jane", "Sales")
+            staffService.createStaffWithError("Jane", "Sales")
         } catch (RuntimeException e) {
             // Expected
         }
         
         then:
-        Employee.count() == 1 // Should still be 1 due to rollback
+        Staff.count() == 1 // Should still be 1 due to rollback
     }
     
     def "test mixed Spring and GORM transactions"() {
         given:
-        def employeeService = new EmployeeService()
+        def staffService = new StaffService()
         
         when: "GORM transaction calling Spring service"
-        def result = Employee.withNativeTransaction { session ->
-            def emp = employeeService.createEmployee("Bob")
-            emp.department = "Marketing"
-            emp.save(flush: true)
-            return emp
+        def result = Staff.withNativeTransaction { session ->
+            def member = staffService.createStaff("Bob")
+            member.role = "Marketing"
+            member.save(flush: true)
+            return member
         }
         
         then:
-        result.department == "Marketing"
-        Employee.count() == 2
+        result.role == "Marketing"
+        Staff.count() == 2
     }
 }
 
 @Entity
-class Employee {
+class Staff {
     String name
-    String department
+    String role
 }
 
 @Service
-class EmployeeService {
-    
+class StaffService {
+
     @Transactional
-    Employee createEmployeeWithDepartment(String name, String department) {
-        def employee = new Employee(name: name, department: department)
-        employee.save(flush: true)
-        return employee
+    Staff createStaffWithRole(String name, String role) {
+        new Staff(name: name, role: role).save(flush: true)
     }
-    
+
     @Transactional
-    Employee createEmployeeWithError(String name, String department) {
-        def employee = new Employee(name: name, department: department)
-        employee.save(flush: true)
+    Staff createStaffWithError(String name, String role) {
+        new Staff(name: name, role: role).save(flush: true)
         throw new RuntimeException("Simulated error")
     }
-    
-    Employee createEmployee(String name) {
-        return new Employee(name: name).save(flush: true)
+
+    Staff createStaff(String name) {
+        new Staff(name: name).save(flush: true)
     }
 }

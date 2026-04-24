@@ -5,7 +5,6 @@ import groovy.util.logging.Slf4j
 import org.bson.Document
 
 @Slf4j
-@Transactional
 class MedicationService {
 
     // ---- Bson find / count / findOneAndDelete (on Facility) ----

@@ -100,7 +100,7 @@ class LargeObjectService {
         def elapsedMs = System.currentTimeMillis() - startTime
         log.info("Large object creation took ${elapsedMs}ms")
 
-        return [result: result, latencyMs: elapsedMs]
+        return [serviceRequest: result.serviceRequest, snapshot: result.snapshot, latencyMs: elapsedMs]
     }
 
     /**

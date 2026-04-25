@@ -19,20 +19,18 @@ class MongoTransactionalSpec extends GormDatastoreSpec {
         ]
     }
 
-    @Transactional
     def "test native transaction rollback"() {
-        when:
-        new TestPerson(name: "John").save(flush: true)
-        def count = TestPerson.count()
-        
+        when: "transaction rolls back on exception"
+        try {
+            TestPerson.withNativeTransaction {
+                new TestPerson(name: "John").save()
+                throw new RuntimeException("Force rollback")
+            }
+        } catch (RuntimeException e) {
+            // Expected
+        }
+
         then:
-        count == 1
-        
-        when: "transaction rolls back"
-        throw new RuntimeException("Force rollback")
-        
-        then:
-        thrown(RuntimeException)
         TestPerson.count() == 0 // Should be 0 due to rollback
     }
 }

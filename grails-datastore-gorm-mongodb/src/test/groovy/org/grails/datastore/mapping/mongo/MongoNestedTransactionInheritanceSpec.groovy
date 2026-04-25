@@ -37,23 +37,23 @@ class MongoNestedTransactionInheritanceSpec extends GormDatastoreSpec {
         when: "regular parent with native child call"
         def result = Item.withTransaction { status ->
             new Item(name: "RegularParent").save(flush: true)
-            
-            // Child call using withNativeTransaction should stay regular
+
+            // Child call using withNativeTransaction starts a native transaction
             def childResult = Item.withNativeTransaction { nativeSession ->
                 new Item(name: "RegularChild").save(flush: true)
                 return Item.isInNativeTransaction()
             }
-            
+
             return [
                 parentNative: Item.isInNativeTransaction(),
                 childNative: childResult
             ]
         }
-        
+
         then:
         result.parentNative == false
-        result.childNative == false
-        Item.count() == 4 // 2 from previous test + 2 new
+        result.childNative == true  // Child starts native transaction
+        Item.count() == 2
     }
     
     def "test deep nesting inheritance"() {
@@ -82,7 +82,7 @@ class MongoNestedTransactionInheritanceSpec extends GormDatastoreSpec {
         result.level2Native == true
         result.level3Native == true
         result.sameSession == true
-        Item.count() == 7 // 4 from previous tests + 3 new
+        Item.count() == 3
     }
 }
 

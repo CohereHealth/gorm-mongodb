@@ -1,5 +1,6 @@
 package org.grails.datastore.mapping.mongo
 
+import com.mongodb.client.ClientSession
 import grails.gorm.tests.GormDatastoreSpec
 import grails.gorm.tests.Person
 import grails.gorm.tests.Pet

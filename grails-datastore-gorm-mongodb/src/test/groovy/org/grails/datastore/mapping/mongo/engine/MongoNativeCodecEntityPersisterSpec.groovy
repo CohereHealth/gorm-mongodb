@@ -2,6 +2,8 @@ package org.grails.datastore.mapping.mongo.engine
 
 import grails.gorm.tests.GormDatastoreSpec
 import grails.gorm.tests.Person
+import org.grails.datastore.mapping.core.DatastoreUtils
+import org.grails.datastore.mapping.mongo.MongoNativeCodecSession
 
 /**
  * Tests for native persister behavior: immediate execution, optimistic locking,
@@ -67,7 +69,7 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
 
         when: "deleting within native transaction"
         Person.withNativeTransaction { status ->
-            person.delete(flush: false)
+            person.delete()
         }
 
         then: "delete should execute immediately"
@@ -118,14 +120,13 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
             otherPerson.age = 31
             otherPerson.save()
 
-            // Now try to save original person
+            // Now try to save original person with stale version
             person.age = 32
-            person.save()
+            person.save()  // This should throw OptimisticLockingException
         }
 
-        then: "should handle concurrent modification appropriately"
-        def finalPerson = Person.get(person.id)
-        finalPerson.version > originalVersion
+        then: "should throw optimistic locking exception"
+        thrown(org.grails.datastore.mapping.core.OptimisticLockingException)
     }
 
     void "test deleteAll batches deletes in native transaction"() {

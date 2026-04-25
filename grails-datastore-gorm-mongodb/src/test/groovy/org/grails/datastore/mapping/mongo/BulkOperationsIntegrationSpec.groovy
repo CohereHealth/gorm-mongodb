@@ -20,9 +20,9 @@ class BulkOperationsIntegrationSpec extends GormDatastoreSpec {
             new Person(firstName: "Bulk$it", lastName: "Insert", age: 20 + (it % 50))
         }
         def initialCount = Person.count()
-        
+
         when: "performing bulk insert"
-        def result = BulkOperations.insertAll(Person, persons)
+        def result = BulkOperations.insertAll(Person, people)
         
         then: "all persons should be inserted"
         result.insertedCount == 100
@@ -55,17 +55,17 @@ class BulkOperationsIntegrationSpec extends GormDatastoreSpec {
             new Person(firstName: "New$it", lastName: "Mixed", age: 25)
         }
         def initialCount = Person.count()
-        
+
         when: "performing bulk save"
         existing.age = 35 // Modify existing
-        def result = BulkOperations.saveAll(Person, persons)
-        
+        def result = BulkOperations.saveAll(Person, [existing] + newPeople)
+
         then: "all operations should succeed"
-        result.insertedCount == 2  // 2 new persons
+        result.insertedCount == 5  // 5 new persons
         result.modifiedCount == 1  // 1 updated person
-        Person.count() == initialCount + 2 // 2 new persons
+        Person.count() == initialCount + 5 // 5 new persons
         Person.get(existing.id).age == 35
-        Person.countByLastName("Save") == 3
+        Person.countByLastName("Mixed") == 6
     }
 
     void "test bulk delete operations"() {
@@ -168,17 +168,24 @@ class BulkOperationsIntegrationSpec extends GormDatastoreSpec {
         Person.withNativeTransaction {
             Person.saveAll(people)
         }
-        
-        when: "timing bulk vs individual operations"
+
+        and: "timing bulk vs individual operations"
+        def bulkPersons = (1..500).collect {
+            new Person(firstName: "Bulk$it", lastName: "Performance", age: 25)
+        }
         def bulkStart = System.currentTimeMillis()
         BulkOperations.insertAll(Person, bulkPersons)
         def bulkTime = System.currentTimeMillis() - bulkStart
-        
+
+        def individualPersons = (1..500).collect {
+            new Person(firstName: "Individual$it", lastName: "Performance", age: 25)
+        }
         def individualStart = System.currentTimeMillis()
         individualPersons.each { it.save() }
         def individualTime = System.currentTimeMillis() - individualStart
-        
+
         then: "bulk should be faster or comparable"
+        Person.countByLastName("Batch") == 500
         Person.countByLastName("Performance") == 1000
         bulkTime <= individualTime * 2 // Allow some variance
     }

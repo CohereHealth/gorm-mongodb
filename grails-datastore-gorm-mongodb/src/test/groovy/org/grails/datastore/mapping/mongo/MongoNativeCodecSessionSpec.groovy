@@ -1,8 +1,10 @@
 package org.grails.datastore.mapping.mongo
 
+import com.mongodb.client.ClientSession
 import grails.gorm.tests.GormDatastoreSpec
 import grails.gorm.tests.Person
 import grails.gorm.tests.Pet
+import org.grails.datastore.mapping.core.DatastoreUtils
 
 /**
  * Tests for native transaction session behavior: immediate visibility,
@@ -66,7 +68,7 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
 
         when: "deleting within native transaction"
         Person.withNativeTransaction { status ->
-            person.delete(flush: false)
+            person.delete()
         }
 
         then: "delete should persist after transaction"
@@ -96,12 +98,12 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
         when: "bulk delete within native transaction"
         long deletedCount = 0
         Person.withNativeTransaction { status ->
-            deletedCount = Person.where { lastName == "Test" }.deleteAll()
+            deletedCount = Person.where { lastName == "BulkDel" }.deleteAll()
         }
 
         then: "delete should persist after transaction"
         deletedCount == 5
-        Person.countByLastName("Test") == 0
+        Person.countByLastName("BulkDel") == 0
         Person.count() == initialCount - 5
     }
 

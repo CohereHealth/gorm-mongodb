@@ -4,7 +4,6 @@ import com.mongodb.client.ClientSession
 import grails.gorm.annotation.Entity
 import grails.gorm.tests.GormDatastoreSpec
 import org.grails.datastore.mapping.mongo.config.MongoSettings
-import org.springframework.transaction.annotation.Transactional
 
 /**
  * Tests to verify that when global native transactions are enabled via config:
@@ -12,12 +11,13 @@ import org.springframework.transaction.annotation.Transactional
  * grails.mongodb.nativeTransactionsEnabled: true
  * </pre>
  *
- * All three transaction mechanisms automatically use native MongoDB transactions:
- * 1. @Transactional annotation
- * 2. withTransaction closure
- * 3. withNativeTransaction closure (explicit/redundant, always native)
+ * The withTransaction method automatically uses native MongoDB transactions instead of
+ * session-only transactions.
  *
- * This eliminates the need to explicitly use withNativeTransaction when global config is enabled.
+ * NOTE: @Transactional annotation testing cannot be done in unit tests because it requires
+ * a full Spring application context with AOP proxy creation, PlatformTransactionManager bean,
+ * and proper component scanning. These tests focus on GORM's withTransaction behavior which
+ * can be tested in the unit test environment.
  */
 class MongoGlobalNativeTransactionSpec extends GormDatastoreSpec {
 
@@ -32,44 +32,7 @@ class MongoGlobalNativeTransactionSpec extends GormDatastoreSpec {
     }
 
     // ========================================================================
-    // Test 1: @Transactional uses native transactions with global config
-    // ========================================================================
-
-    def "test @Transactional uses native transactions when globally enabled"() {
-        given: "a service with @Transactional"
-        def service = new OrderService()
-
-        when: "calling a @Transactional method"
-        def result = service.createOrderWithTransaction("ORD-001")
-
-        then: "native transaction was used"
-        result.usedNative == true
-        result.hadClientSession == true
-        result.hadActiveTransaction == true
-
-        and: "order was created"
-        Order.count() == 1
-        Order.findByNumber("ORD-001") != null
-    }
-
-    def "test @Transactional rollback uses native transaction abort"() {
-        given: "a service with @Transactional"
-        def service = new OrderService()
-
-        when: "transaction throws exception"
-        try {
-            service.createOrderWithError("ORD-002")
-        } catch (RuntimeException e) {
-            // Expected
-        }
-
-        then: "native transaction rolled back - no data persisted"
-        Order.count() == 0
-        Order.findByNumber("ORD-002") == null
-    }
-
-    // ========================================================================
-    // Test 2: withTransaction uses native transactions with global config
+    // Test 1: withTransaction uses native transactions with global config
     // ========================================================================
 
     def "test withTransaction uses native transactions when globally enabled"() {
@@ -112,7 +75,7 @@ class MongoGlobalNativeTransactionSpec extends GormDatastoreSpec {
     }
 
     // ========================================================================
-    // Test 3: withNativeTransaction explicitly uses native (always works)
+    // Test 2: withNativeTransaction explicitly uses native (always works)
     // ========================================================================
 
     def "test withNativeTransaction explicitly uses native transactions"() {
@@ -157,20 +120,14 @@ class MongoGlobalNativeTransactionSpec extends GormDatastoreSpec {
     }
 
     // ========================================================================
-    // Test 4: All three methods are equivalent with global config
+    // Test 3: Both methods are equivalent with global config
     // ========================================================================
 
-    def "test all three transaction methods behave identically with global config"() {
-        given: "a service with @Transactional"
-        def service = new OrderService()
-
-        when: "creating orders with all three methods"
-        // Method 1: @Transactional
-        def result1 = service.createOrderWithTransaction("ORD-A")
-
-        // Method 2: withTransaction
-        def result2 = Order.withTransaction {
-            new Order(number: "ORD-B").save(flush: true)
+    def "test both withTransaction and withNativeTransaction behave identically with global config"() {
+        when: "creating orders with both methods"
+        // Method 1: withTransaction (should use native automatically with global config)
+        def result1 = Order.withTransaction {
+            new Order(number: "ORD-A").save(flush: true)
             ClientSession session = MongoNativeTransactionContext.getNativeSession()
             return [
                 usedNative: Order.isInNativeTransaction(),
@@ -178,54 +135,29 @@ class MongoGlobalNativeTransactionSpec extends GormDatastoreSpec {
             ]
         }
 
-        // Method 3: withNativeTransaction
-        def result3 = Order.withNativeTransaction { session ->
-            new Order(number: "ORD-C").save(flush: true)
+        // Method 2: withNativeTransaction (explicitly native)
+        def result2 = Order.withNativeTransaction { session ->
+            new Order(number: "ORD-B").save(flush: true)
             return [
                 usedNative: Order.isInNativeTransaction(),
                 hadClientSession: session != null
             ]
         }
 
-        then: "all three used native transactions"
+        then: "both used native transactions"
         result1.usedNative == true
+        result1.hadClientSession == true
         result2.usedNative == true
-        result3.usedNative == true
+        result2.hadClientSession == true
 
-        and: "all three created orders successfully"
-        Order.count() == 3
+        and: "both created orders successfully"
+        Order.count() == 2
         Order.findByNumber("ORD-A") != null
         Order.findByNumber("ORD-B") != null
-        Order.findByNumber("ORD-C") != null
     }
 }
 
 @Entity
 class Order {
     String number
-}
-
-/**
- * Service class to test @Transactional annotation with global native transactions
- */
-class OrderService {
-
-    @Transactional
-    def createOrderWithTransaction(String number) {
-        def order = new Order(number: number).save(flush: true)
-        ClientSession session = MongoNativeTransactionContext.getNativeSession()
-
-        return [
-            usedNative: Order.isInNativeTransaction(),
-            hadClientSession: session != null,
-            hadActiveTransaction: session?.hasActiveTransaction(),
-            orderId: order.id
-        ]
-    }
-
-    @Transactional
-    def createOrderWithError(String number) {
-        new Order(number: number).save(flush: true)
-        throw new RuntimeException("Simulated error")
-    }
 }

@@ -63,12 +63,12 @@ trait MongoNativeTransactionSupport<D> {
                 throw e
             }
         }
-        
+
         final MongoDatastore mongoDatastore = (MongoDatastore) getDatastore()
         def mongoClient = mongoDatastore.mongoClient
         ClientSession clientSession = null
         MongoNativeCodecSession nativeCodecSession = null
-        
+
         try {
             clientSession = mongoClient.startSession()
             clientSession.startTransaction()
@@ -80,16 +80,13 @@ trait MongoNativeTransactionSupport<D> {
             if (holder != null) {
                 holder.addSession(nativeCodecSession)
             }
-            
+
             D result = (D) callable.call(clientSession)
             clientSession.commitTransaction()
             return result
         } catch (Exception e) {
             if (clientSession?.hasActiveTransaction()) {
                 clientSession.abortTransaction()
-            }
-            if (nativeCodecSession != null) {
-                nativeCodecSession.clear()
             }
             throw e
         } finally {
@@ -99,6 +96,18 @@ trait MongoNativeTransactionSupport<D> {
                 if (holder != null) {
                     holder.removeSession(nativeCodecSession)
                 }
+                nativeCodecSession.clear()
+            }
+            // Flush and clear any outer session that might have cached objects.
+            // IMPORTANT: We must flush() before clear() to persist any pending changes
+            // from the outer regular transaction. If we only cleared without flushing, unflushed
+            // writes (e.g., save(flush: false)) would be lost. After flushing, we clear
+            // the session cache to ensure subsequent reads see the changes committed by
+            // the native transaction, preventing stale cache reads.
+            def outerSession = DatastoreUtils.getSession(mongoDatastore, false)
+            if (outerSession != null && outerSession != nativeCodecSession) {
+                outerSession.flush()  // Persist pending changes before clearing
+                outerSession.clear()  // Then invalidate cache to prevent stale reads
             }
             clientSession?.close()
         }
@@ -134,9 +143,6 @@ trait MongoNativeTransactionSupport<D> {
             if (clientSession?.hasActiveTransaction()) {
                 clientSession.abortTransaction()
             }
-            if (nativeCodecSession != null) {
-                nativeCodecSession.clear()
-            }
             throw e
         } finally {
             MongoNativeTransactionContext.popNativeSession()
@@ -145,6 +151,7 @@ trait MongoNativeTransactionSupport<D> {
                 if (holder != null) {
                     holder.removeSession(nativeCodecSession)
                 }
+                nativeCodecSession.clear()
             }
             clientSession?.close()
         }

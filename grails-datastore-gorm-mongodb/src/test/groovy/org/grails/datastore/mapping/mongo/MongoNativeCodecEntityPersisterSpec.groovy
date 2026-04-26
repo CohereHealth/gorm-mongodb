@@ -70,17 +70,22 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
     void "test optimistic locking exception"() {
         given:
         def book = new VersionedBook(title: "Test Book").save(flush: true)
-        def book2 = VersionedBook.get(book.id)
-        
+        def bookId = book.id
+        // Clear session to force a fresh fetch (simulating concurrent access)
+        VersionedBook.withSession { session ->
+            session.clear()
+        }
+        def book2 = VersionedBook.get(bookId)
+
         when:
-        VersionedBook.withTransaction { status ->
+        VersionedBook.withNativeTransaction { status ->
             book.title = "Update 1"
             book.save()
-            
+
             book2.title = "Update 2"
-            book2.save()
+            book2.save()  // This should throw OptimisticLockingException
         }
-        
+
         then:
         thrown(OptimisticLockingException)
     }

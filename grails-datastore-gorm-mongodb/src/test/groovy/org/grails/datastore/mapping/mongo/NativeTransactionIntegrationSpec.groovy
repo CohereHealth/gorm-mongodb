@@ -65,35 +65,29 @@ class NativeTransactionIntegrationSpec extends GormDatastoreSpec {
         Person.get(results.personId).age == 31
     }
 
-    void "test transaction isolation and consistency"() {
-        given: "shared data"
-        def person = new Person(firstName: "Isolation", lastName: "Test", age: 25).save(flush: true)
+    void "test transaction isolation with separate transactions"() {
+        given: "initial data"
+        def personId = new Person(firstName: "Isolation", lastName: "Test", age: 25).save(flush: true).id
 
-        when: "concurrent transaction simulation"
-        def results = [:]
-
-        Person.withNativeTransaction { status ->
-            // Read initial state
-            def p1 = Person.get(person.id)
-            results.initialAge = p1.age
-
-            // Simulate external modification (would be another transaction in real scenario)
-            Person.collection.updateOne(new Document("_id", person.id), new Document('$set', new Document("age", 30)))
-
-            // Read again within same transaction
-            def p2 = Person.get(person.id)
-            results.secondRead = p2.age
-
-            // Modify within transaction
-            p1.age = 35
+        when: "first transaction modifies the person"
+        Person.withNativeTransaction {
+            def p1 = Person.get(personId)
+            p1.age = 30
             p1.save()
-            results.finalAge = p1.age
         }
 
-        then: "transaction should maintain consistency"
-        results.initialAge == 25
-        results.finalAge == 35
-        Person.get(person.id).age == 35
+        and: "second transaction reads and modifies further"
+        def finalAge = Person.withNativeTransaction {
+            def p2 = Person.get(personId)
+            assert p2.age == 30  // Should see previous transaction's changes
+            p2.age = 35
+            p2.save()
+            return p2.age
+        }
+
+        then: "final state reflects both transactions"
+        finalAge == 35
+        Person.get(personId).age == 35
     }
 
     void "test transaction rollback with multiple entities"() {

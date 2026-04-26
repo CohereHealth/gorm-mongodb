@@ -175,12 +175,16 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
      * Begin native transaction
      */
     private void doBeginNative(Object transaction, TransactionDefinition definition) {
-        final Session session = getDatastore().connect()
         final MongoTransactionObject tx = extractMongoTransactionObject(transaction)
 
         if (tx instanceof MongoTransactionObject) {
             final TransactionOptions options = TransactionOptions.builder().build()
             def clientSession = ((MongoTransactionObject) tx).getClientSession()
+
+            // Push native session to context BEFORE creating session so MongoNativeCodecSession is used
+            MongoNativeTransactionContext.pushNativeSession(clientSession)
+
+            final Session session = getDatastore().connect()
             final MongoSessionHolder sessionHolder = new MongoSessionHolder(session, clientSession)
             log.debug("Started native MongoDB transaction")
 
@@ -192,6 +196,7 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
             // Bind to Spring transaction manager
             TransactionSynchronizationManager.bindResource(getDatastore(), sessionHolder)
         } else {
+            final Session session = getDatastore().connect()
             final SessionHolder sessionHolder = new SessionHolder(session)
             log.debug("Started standard MongoDB transaction")
 
@@ -230,9 +235,12 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
      * Cleanup native transaction resources
      */
     private void doCleanupNative(MongoTransactionObject transaction) {
+        // Pop native session from context
+        MongoNativeTransactionContext.popNativeSession()
+
         // Unbind from Spring transaction manager
         TransactionSynchronizationManager.unbindResourceIfPossible(getDatastore())
-        
+
         transaction.mongoSessionHolder?.getClientSession()?.close()
 
         log.debug("Cleaned up native MongoDB transaction resources")

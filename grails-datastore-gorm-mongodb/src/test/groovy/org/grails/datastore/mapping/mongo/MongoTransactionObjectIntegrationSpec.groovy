@@ -13,14 +13,6 @@ class MongoTransactionObjectIntegrationSpec extends GormDatastoreSpec {
     List getDomainClasses() {
         [Company, Department, TxEmployee]
     }
-    
-    @Override
-    Map getConfiguration() {
-        [
-            'grails.mongodb.nativeTransactions': true,
-            'logging.level.org.grails.datastore.mapping.mongo': 'DEBUG'
-        ]
-    }
 
     def "test complete business transaction with rollback"() {
         given:

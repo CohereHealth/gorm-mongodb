@@ -12,12 +12,6 @@ class MongoTransactionalSpec extends GormDatastoreSpec {
         [TestPerson]
     }
     
-    @Override
-    Map getConfiguration() {
-        [
-            'grails.mongodb.nativeTransactions': true
-        ]
-    }
 
     def "test native transaction rollback"() {
         when: "transaction rolls back on exception"

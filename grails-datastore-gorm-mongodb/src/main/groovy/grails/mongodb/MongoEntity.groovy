@@ -36,6 +36,7 @@ import org.grails.datastore.mapping.core.SessionImplementor
 import org.grails.datastore.mapping.engine.EntityPersister
 import org.grails.datastore.mapping.mongo.AbstractMongoSession
 import org.grails.datastore.mapping.mongo.MongoDatastore
+import org.grails.datastore.mapping.mongo.MongoNativeTransactionContext
 import org.grails.datastore.mapping.mongo.engine.MongoEntityPersister
 
 import java.util.function.Function
@@ -302,6 +303,10 @@ trait MongoEntity<D> implements GormEntity<D>, DynamicAttributes {
 
     static <T> T withNewNativeTransaction(Closure<T> callable) {
         (T) (((MongoNativeStaticApi) currentGormStaticApi()).withNewNativeTransaction callable)
+    }
+
+    static boolean isInNativeTransaction() {
+        MongoNativeTransactionContext.isInNativeTransaction()
     }
 
     private static MongoStaticApi currentMongoStaticApi() {

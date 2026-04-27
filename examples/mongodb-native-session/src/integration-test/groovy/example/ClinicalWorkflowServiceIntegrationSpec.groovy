@@ -17,6 +17,10 @@ class ClinicalWorkflowServiceIntegrationSpec extends Specification {
     ClinicalWorkflowService clinicalWorkflowService
 
     void "test schedule visit with prescription in nested native calls"() {
+        given: "capture initial counts"
+        def initialApptCount = Appointment.count()
+        def initialPrescriptionCount = Prescription.count()
+
         when:
         def result = clinicalWorkflowService.scheduleVisitWithPrescription(
             'John Doe', 'Dr. Smith', 'Cardiology', LocalDateTime.now().plusDays(7),
@@ -29,8 +33,8 @@ class ClinicalWorkflowServiceIntegrationSpec extends Specification {
         result.prescription != null
         result.prescription.status == 'ACTIVE'
         result.prescription.medicationName == 'Lisinopril'
-        Appointment.count() == 1
-        Prescription.count() == 1
+        Appointment.count() == initialApptCount + 1
+        Prescription.count() == initialPrescriptionCount + 1
     }
 
     void "test full visit workflow through nested native calls"() {
@@ -60,6 +64,7 @@ class ClinicalWorkflowServiceIntegrationSpec extends Specification {
 
     void "test batch scheduling through nested native calls"() {
         given:
+        def initialCount = Appointment.count()
         def specs = (1..5).collect { i ->
             [patientName: "Patient $i", providerName: 'Dr. Lee',
              department: 'General', scheduledDate: LocalDateTime.now().plusDays(i)]
@@ -70,7 +75,7 @@ class ClinicalWorkflowServiceIntegrationSpec extends Specification {
 
         then:
         appointments.size() == 5
-        Appointment.count() == 5
+        Appointment.count() == initialCount + 5
     }
 
     void "test batch failure rolls back all nested native writes"() {

@@ -80,7 +80,7 @@ class MongoNestedTransactionInheritanceSpec extends GormDatastoreSpec {
         result.level1NativeExists == true
         result.level3IsNative == true
         result.nativeSessionsAreTheSame == true
-        Item.count() == old(Item.count()) + 3
+        Item.count() == 3
     }
 }
 

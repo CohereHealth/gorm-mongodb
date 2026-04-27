@@ -9,7 +9,10 @@ import com.mongodb.client.model.UpdateOneModel
 import com.mongodb.client.model.WriteModel
 import groovy.transform.CompileStatic
 import groovy.util.logging.Slf4j
+import org.bson.BsonDocument
+import org.bson.BsonDocumentWriter
 import org.bson.Document
+import org.bson.codecs.EncoderContext
 import org.grails.datastore.mapping.core.AbstractDatastore
 import org.grails.datastore.mapping.dirty.checking.DirtyCheckable
 import org.grails.datastore.mapping.model.PersistentEntity
@@ -105,8 +108,11 @@ class BulkOperations {
     
     private static Document encodeEntity(AbstractMongoSession session, PersistentEntity entity, Object obj) {
         if (session instanceof MongoCodecSession) {
-//            return ((MongoCodecSession) session).encode(obj)
-            return new Document()
+            MongoDatastore datastore = (MongoDatastore) session.getDatastore()
+            PersistentEntityCodec codec = datastore.getPersistentEntityCodec(entity)
+            BsonDocument bsonDoc = new BsonDocument()
+            codec.encode(new BsonDocumentWriter(bsonDoc), obj, EncoderContext.builder().build())
+            return new Document(bsonDoc)
         } else {
             // Fallback for other session types
             throw new IllegalStateException("Unsupported session type: ${session.class.name}")

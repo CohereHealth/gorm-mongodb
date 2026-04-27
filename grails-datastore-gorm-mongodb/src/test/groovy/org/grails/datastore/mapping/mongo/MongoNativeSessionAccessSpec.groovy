@@ -14,21 +14,21 @@ class MongoNativeSessionAccessSpec extends GormDatastoreSpec {
     def "test access to native session from services and domains"() {
         given:
         def customerService = new CustomerService()
-        
+
         when: "outside native transaction"
         def hasSession = Customer.isInNativeTransaction()
-        def session = Customer.getCurrentNativeSession()
-        
+        def session = MongoNativeTransactionContext.getNativeSession()
+
         then:
         !hasSession
         session == null
-        
+
         when: "inside native transaction"
         def result = Customer.withNativeTransaction { nativeSession ->
             def inTransaction = Customer.isInNativeTransaction()
-            def currentSession = Customer.getCurrentNativeSession()
+            def currentSession = MongoNativeTransactionContext.getNativeSession()
             def serviceResult = customerService.processCustomer("John")
-            
+
             return [
                 inTransaction: inTransaction,
                 currentSession: currentSession,
@@ -36,7 +36,7 @@ class MongoNativeSessionAccessSpec extends GormDatastoreSpec {
                 sameSession: currentSession == nativeSession
             ]
         }
-        
+
         then:
         result.inTransaction == true
         result.currentSession != null
@@ -53,14 +53,14 @@ class Customer {
 
 @Service
 class CustomerService {
-    
+
     def processCustomer(String name) {
         // Access native session from service
-        def session = MongoNativeTransactionHelper.getCurrentNativeSession()
-        def inTransaction = MongoNativeTransactionHelper.isInNativeTransaction()
-        
+        def session = MongoNativeTransactionContext.getNativeSession()
+        def inTransaction = MongoNativeTransactionContext.isInNativeTransaction()
+
         new Customer(name: name).save(flush: true)
-        
+
         return [
             sessionAvailable: session != null,
             inTransaction: inTransaction

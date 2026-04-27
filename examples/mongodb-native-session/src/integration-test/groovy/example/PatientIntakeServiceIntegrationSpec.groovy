@@ -1,7 +1,7 @@
 package example
 
-import grails.gorm.transactions.Rollback
 import grails.testing.mixin.integration.Integration
+import org.grails.datastore.mapping.mongo.NativeRollback
 import spock.lang.Specification
 
 import java.time.LocalDateTime
@@ -12,18 +12,16 @@ import java.time.LocalDateTime
  * so native writes survive even if the legacy caller fails.
  */
 @Integration
-@Rollback
+@NativeRollback
 class PatientIntakeServiceIntegrationSpec extends Specification {
 
     PatientIntakeService patientIntakeService
 
-    void cleanup() {
-        Patient.collection.drop()
-        Appointment.withNewNativeTransaction { Appointment.collection.drop() }
-        LabResult.withNewNativeTransaction { LabResult.collection.drop() }
-    }
-
     void "test intake registers patient and schedules appointment"() {
+        given:
+        def initialPatientCount = Patient.count()
+        def initialApptCount = Appointment.count()
+
         when:
         def result = patientIntakeService.registerAndSchedule(
             'Eve', 'Martinez', 35, 'Dr. Shah', 'Dermatology', LocalDateTime.now().plusDays(5)
@@ -35,17 +33,15 @@ class PatientIntakeServiceIntegrationSpec extends Specification {
         result.appointment != null
         result.appointment.status == 'SCHEDULED'
         result.appointment.patientName == 'Eve Martinez'
-        Patient.count() == 1
 
-        and:
-        Appointment.withNewNativeTransaction {
-            Appointment.count() == 1
-        }
+        and: "verify counts increased by exactly 1"
+        Patient.count() == initialPatientCount + 1
+        Appointment.count() == initialApptCount + 1
     }
 
     void "test intake failure does not roll back native appointment"() {
         given:
-        def initialApptCount = Appointment.withNewNativeTransaction { Appointment.count() }
+        def initialApptCount = Appointment.count()
 
         when:
         patientIntakeService.registerAndScheduleWithFailure(
@@ -56,9 +52,7 @@ class PatientIntakeServiceIntegrationSpec extends Specification {
         thrown(RuntimeException)
 
         and: "native appointment was committed independently and persists"
-        Appointment.withNewNativeTransaction {
-            Appointment.count() == initialApptCount + 1
-        }
+        Appointment.count() == initialApptCount + 1
     }
 
     void "test full intake with mixed legacy and native services"() {

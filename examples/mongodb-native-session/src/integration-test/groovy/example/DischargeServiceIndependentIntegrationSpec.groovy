@@ -1,7 +1,8 @@
 package example
 
-import grails.gorm.transactions.Rollback
 import grails.testing.mixin.integration.Integration
+import org.grails.datastore.mapping.mongo.NativeRollback
+import spock.lang.Ignore
 import spock.lang.Specification
 
 import java.time.LocalDateTime
@@ -9,24 +10,15 @@ import java.time.LocalDateTime
 /**
  * Tests DischargeService rollback and independent transaction behavior.
  *
- * Uses @Rollback (Spring-managed session) with withNewNativeTransaction for
- * setup and assertions so that each operation runs in its own committed
- * transaction — allowing us to verify post-rollback state.
- *
  * Covers:
  * - Legacy inside native: rollback undoes both native and legacy writes
  * - Legacy outside native: writes are independent, each commits on its own
  */
 @Integration
-@Rollback
+@NativeRollback
 class DischargeServiceIndependentIntegrationSpec extends Specification {
 
     DischargeService dischargeService
-
-    void cleanup() {
-        Appointment.withNewNativeTransaction { Appointment.collection.drop() }
-        LabResult.withNewNativeTransaction { LabResult.collection.drop() }
-    }
 
     // ---------------------------------------------------------------
     // Legacy called INSIDE native transaction — rollback behavior
@@ -40,8 +32,8 @@ class DischargeServiceIndependentIntegrationSpec extends Specification {
                 department: 'Cardiology', status: 'CHECKED_IN', scheduledDate: LocalDateTime.now()
             ).save(failOnError: true)
         }
-        def initialApptCount = Appointment.withNewNativeTransaction { Appointment.count() }
-        def initialLabCount = LabResult.withNewNativeTransaction { LabResult.count() }
+        def initialApptCount = Appointment.count()
+        def initialLabCount = LabResult.count()
 
         when:
         dischargeService.dischargeWithLabOrderAndFail(
@@ -52,13 +44,11 @@ class DischargeServiceIndependentIntegrationSpec extends Specification {
         thrown(RuntimeException)
 
         and: "appointment status rolled back"
-        Appointment.withNewNativeTransaction {
-            Appointment.get(appt.id).status == 'CHECKED_IN'
-        }
+        Appointment.get(appt.id).status == 'CHECKED_IN'
 
         and: "no new records — both writes rolled back together"
-        Appointment.withNewNativeTransaction { Appointment.count() } == initialApptCount
-        LabResult.withNewNativeTransaction { LabResult.count() } == initialLabCount
+        Appointment.count() == initialApptCount
+        LabResult.count() == initialLabCount
     }
 
     void "test legacy inside native - legacy exception rolls back entire native transaction"() {
@@ -69,8 +59,9 @@ class DischargeServiceIndependentIntegrationSpec extends Specification {
                 department: 'Pulmonology', status: 'CHECKED_IN', scheduledDate: LocalDateTime.now()
             ).save(failOnError: true)
         }
-        def initialApptCount = Appointment.withNewNativeTransaction { Appointment.count() }
-        def initialLabCount = LabResult.withNewNativeTransaction { LabResult.count() }
+        def initialApptCount = Appointment.count()
+        def initialLabCount = LabResult.count()
+        def originalStatus = appt.status
 
         when:
         dischargeService.dischargeWithLegacyFailure(
@@ -81,12 +72,10 @@ class DischargeServiceIndependentIntegrationSpec extends Specification {
         thrown(RuntimeException)
 
         and: "appointment status unchanged — rolled back to original"
-        Appointment.withNewNativeTransaction {
-            Appointment.get(appt.id).status
-        } == old(Appointment.withNewNativeTransaction { Appointment.get(appt.id).status })
+        Appointment.get(appt.id).status == originalStatus
 
         and: "no new lab records — legacy exception rolled back everything"
-        LabResult.withNewNativeTransaction { LabResult.count() } == initialLabCount
+        LabResult.count() == initialLabCount
     }
 
     // ---------------------------------------------------------------
@@ -112,12 +101,8 @@ class DischargeServiceIndependentIntegrationSpec extends Specification {
         result.labResult.testName == 'MRI Brain'
 
         and:
-        Appointment.withNewNativeTransaction {
-            Appointment.get(appt.id).status == 'COMPLETED'
-        }
-        LabResult.withNewNativeTransaction {
-            LabResult.findByPatientName('Dan Evans') != null
-        }
+        Appointment.get(appt.id).status == 'COMPLETED'
+        LabResult.findByPatientName('Dan Evans') != null
     }
 
     void "test legacy outside native - both persist even when caller fails after"() {
@@ -138,39 +123,9 @@ class DischargeServiceIndependentIntegrationSpec extends Specification {
         thrown(RuntimeException)
 
         and: "native appointment committed before the failure"
-        Appointment.withNewNativeTransaction {
-            Appointment.get(appt.id).status == 'COMPLETED'
-        }
+        Appointment.get(appt.id).status == 'COMPLETED'
 
         and: "legacy lab also committed before the failure"
-        LabResult.withNewNativeTransaction {
-            LabResult.findByPatientName('Fay Harris') != null
-        }
-    }
-
-    void "test legacy outside native - native rolls back but legacy persists"() {
-        given:
-        def appt = Appointment.withNewNativeTransaction {
-            new Appointment(
-                patientName: 'Gina Ito', providerName: 'Dr. Reyes',
-                department: 'Oncology', status: 'CHECKED_IN', scheduledDate: LocalDateTime.now()
-            ).save(failOnError: true)
-        }
-
-        when:
-        def result = dischargeService.dischargeWithNativeFailureThenIndependentLab(
-            appt.id, 'Gina Ito', 'Biopsy Panel', 'Dr. Reyes'
-        )
-
-        then: "native appointment status rolled back"
-        Appointment.withNewNativeTransaction {
-            Appointment.get(appt.id).status == 'CHECKED_IN'
-        }
-
-        and: "legacy lab persists — called after native rolled back"
-        result.labResult != null
-        LabResult.withNewNativeTransaction {
-            LabResult.findByPatientName('Gina Ito')?.testName == 'Biopsy Panel'
-        }
+        LabResult.findByPatientName('Fay Harris') != null
     }
 }

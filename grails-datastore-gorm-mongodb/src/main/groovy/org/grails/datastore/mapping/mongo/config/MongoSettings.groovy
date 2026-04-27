@@ -75,6 +75,6 @@ interface MongoSettings extends Settings {
 
     String SETTING_ENGINE = "grails.mongodb.engine"
 
-    String SETTING_NATIVE_TRANSACTIONS = "grails.mongodb.nativeTransactions"
+    String SETTING_NATIVE_TRANSACTIONS = "grails.mongodb.nativeTransactionsEnabled"
 
 }

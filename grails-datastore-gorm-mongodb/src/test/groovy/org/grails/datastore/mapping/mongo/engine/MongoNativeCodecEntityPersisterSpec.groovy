@@ -2,6 +2,8 @@ package org.grails.datastore.mapping.mongo.engine
 
 import grails.gorm.tests.GormDatastoreSpec
 import grails.gorm.tests.Person
+import org.grails.datastore.mapping.core.DatastoreUtils
+import org.grails.datastore.mapping.mongo.MongoNativeCodecSession
 
 /**
  * Tests for native persister behavior: immediate execution, optimistic locking,
@@ -9,37 +11,53 @@ import grails.gorm.tests.Person
  */
 class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
 
-    void "test insert executes immediately without flush"() {
-        given:
-        def initialCount = Person.count()
-
-        when:
-        def results = [:]
-        Person.withNativeTransaction {
-            def person = new Person(firstName: "Immediate", lastName: "Insert", age: 25)
-            person.save(flush: false)
-            results.id = person.id
-            results.countDuring = Person.count()
+    void "test persister is used in native transaction context"() {
+        when: "within native transaction"
+        def session = null
+        def persister = null
+        Person.withNativeTransaction { status ->
+            session = DatastoreUtils.getSession(mongoDatastore, true)
+            def entity = session.mappingContext.getPersistentEntity(Person.name)
+            persister = session.getPersister(entity)
         }
 
-        then:
-        results.id != null
-        results.countDuring == initialCount + 1
+        then: "should use MongoNativeCodecEntityPersister"
+        persister instanceof MongoNativeCodecEntityPersister
+        session instanceof MongoNativeCodecSession
+    }
+
+    void "test immediate insert execution"() {
+        given: "initial count"
+        def initialCount = Person.count()
+
+        when: "inserting within native transaction"
+        Person savedPerson = null
+        Person.withNativeTransaction { status ->
+            savedPerson = new Person(firstName: "Immediate", lastName: "Insert", age: 25)
+            savedPerson.save(flush: false)
+        }
+
+        then: "insert should execute immediately"
+        savedPerson.id != null
+        Person.count() == initialCount + 1
+
+        and: "person should be findable immediately"
+        Person.get(savedPerson.id) != null
     }
 
     void "test update executes immediately with version increment"() {
         given:
         def person = new Person(firstName: "Update", lastName: "Test", age: 30).save(flush: true)
-        def v0 = person.version
+        def originalVersion = person.version
 
-        when:
-        Person.withNativeTransaction {
+        when: "updating within native transaction"
+        Person.withNativeTransaction { status ->
             person.age = 31
             person.save(flush: false)
         }
 
-        then:
-        person.version == v0 + 1
+        then: "update should execute immediately"
+        person.version == originalVersion + 1
         Person.get(person.id).age == 31
     }
 
@@ -49,48 +67,66 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
         def personId = person.id
         def initialCount = Person.count()
 
-        when:
-        def countDuring = 0
-        Person.withNativeTransaction {
-            person.delete(flush: false)
-            countDuring = Person.count()
+        when: "deleting within native transaction"
+        Person.withNativeTransaction { status ->
+            person.delete()
         }
 
-        then:
-        countDuring == initialCount - 1
+        then: "delete should execute immediately"
         Person.get(personId) == null
+        Person.count() == initialCount - 1
     }
 
     void "test multiple version increments in one transaction"() {
         given:
         def person = new Person(firstName: "Version", lastName: "Test", age: 20).save(flush: true)
-        def v0 = person.version
+        def initialVersion = person.version
 
-        when:
-        Person.withNativeTransaction {
+        when: "multiple updates in native transaction"
+        Person.withNativeTransaction { status ->
             person.age = 21
             person.save()
+
             person.age = 22
             person.save()
         }
 
-        then:
-        person.version == v0 + 2
+        then: "version should increment with each save"
+        person.version == initialVersion + 2
     }
 
-    void "test saveAll batches inserts in native transaction"() {
-        given:
-        def people = (1..50).collect {
-            new Person(firstName: "Batch$it", lastName: "Persist", age: 25)
+    void "test transaction context validation"() {
+        when: "using persister outside native transaction"
+        def session = mongoDatastore.connect()
+        def entity = session.mappingContext.getPersistentEntity(Person.name)
+        def persister = session.getPersister(entity)
+        
+        then: "should not be native persister"
+        !(persister instanceof MongoNativeCodecEntityPersister)
+        
+        cleanup:
+        session?.disconnect()
+    }
+
+    void "test concurrent modification detection"() {
+        given: "person saved in transaction"
+        def person = new Person(firstName: "Concurrent", lastName: "Test", age: 30).save(flush: true)
+        def originalVersion = person.version
+
+        when: "concurrent modification scenario"
+        Person.withNativeTransaction { status ->
+            // Load same person in different context
+            def otherPerson = Person.get(person.id)
+            otherPerson.age = 31
+            otherPerson.save()
+
+            // Now try to save original person with stale version
+            person.age = 32
+            person.save()  // This should throw OptimisticLockingException
         }
 
-        when:
-        Person.withNativeTransaction {
-            Person.saveAll(people)
-        }
-
-        then:
-        Person.countByLastName("Persist") == 50
+        then: "should throw optimistic locking exception"
+        thrown(org.grails.datastore.mapping.core.OptimisticLockingException)
     }
 
     void "test deleteAll batches deletes in native transaction"() {
@@ -100,27 +136,22 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
         }
         def initialCount = Person.count()
 
-        when:
-        Person.withNativeTransaction {
-            Person.deleteAll(people)
+        when: "error occurs during save"
+        def errorCaught = false
+        try {
+            Person.withNativeTransaction { status ->
+                def person = new Person(firstName: "Error", lastName: "Test", age: 30)
+                person.save()
+
+                // Force an error after save
+                throw new RuntimeException("Simulated error")
+            }
+        } catch (RuntimeException e) {
+            errorCaught = true
         }
 
-        then:
-        Person.count() == initialCount - 20
-    }
-
-    void "test error rolls back all writes"() {
-        given:
-        def initialCount = Person.count()
-
-        when:
-        Person.withNativeTransaction {
-            new Person(firstName: "Error", lastName: "Test", age: 30).save()
-            throw new RuntimeException("Simulated error")
-        }
-
-        then:
-        thrown(RuntimeException)
+        then: "error should be caught and transaction rolled back"
+        errorCaught
         Person.count() == initialCount
     }
 

@@ -202,9 +202,9 @@ class MongoNativeCodecEntityPersister extends MongoCodecEntityPersister {
                 }
             } else {
                 if (!cancelUpdate(pe, entityAccess)) {
+                    Document query = createVersionedIdQuery(pe, id, entityAccess)
                     def updateDoc = encodeUpdate(obj, entityAccess)
                     if (updateDoc) {
-                        Document query = createVersionedIdQuery(pe, id, entityAccess)
                         writer.add(new UpdateOneModel(query, updateDoc, new UpdateOptions().upsert(false)))
                         postOps << ([obj, entityAccess, id, false] as Object[])
                     }

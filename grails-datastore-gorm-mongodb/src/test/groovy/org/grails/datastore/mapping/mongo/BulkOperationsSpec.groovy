@@ -35,19 +35,22 @@ class BulkOperationsSpec extends GormDatastoreSpec {
 
     void "test saveAll with mix of inserts and updates in native transaction"() {
         given:
-        def existing = new Person(firstName: "Existing", lastName: "User", age: 30).save(flush: true)
-        def newPerson = new Person(firstName: "New", lastName: "User", age: 25)
+        def existingId = new Person(firstName: "Existing", lastName: "User", age: 30).save(flush: true).id
+        def newPerson1 = new Person(firstName: "New1", lastName: "User", age: 25)
+        def newPerson2 = new Person(firstName: "New2", lastName: "User", age: 27)
 
         when:
-        existing.age = 35
         Person.withNativeTransaction {
-            Person.saveAll([existing, newPerson])
+            def existing = Person.get(existingId)
+            existing.age = 35
+            Person.saveAll([existing, newPerson1, newPerson2])
         }
 
         then:
-        Person.count() == 2
-        Person.get(existing.id).age == 35
-        Person.findByFirstName("New") != null
+        Person.count() == 3
+        Person.get(existingId).age == 35
+        Person.findByFirstName("New1") != null
+        Person.findByFirstName("New2") != null
     }
 
     void "test deleteAll removes multiple entities in native transaction"() {

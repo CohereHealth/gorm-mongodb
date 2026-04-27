@@ -59,7 +59,7 @@ jobs:
         env:
           GRADLE_ENTERPRISE_ACCESS_KEY: ${{ secrets.GRADLE_ENTERPRISE_ACCESS_KEY }}
         with:
-          arguments: ${{ steps.example_tests.outputs.INCLUDE_CMD }}
+          arguments: -Dgeb.env=firefoxHeadless ${{ steps.example_tests.outputs.INCLUDE_CMD }}
   publish:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'

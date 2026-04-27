@@ -780,8 +780,8 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
      * }</pre>
      *
      * <p>Usage in domain classes:
-     * <pre>{@code
-     * @Entity
+     * <pre>
+     * &#64;Entity
      * class Person {
      *     String name
      *     Integer age
@@ -798,12 +798,12 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
      * }
      *
      * // Using native transactions
-     * Person.withNativeTransaction { session ->
+     * Person.withNativeTransaction { session -&gt;
      *     new Person(name: "John", age: 30).save()
      *     new Address(person: person, street: "123 Main St").save()
      *     // Both operations committed atomically
      * }
-     * }</pre>
+     * </pre>
      *
      * <p>The enhancer provides MongoDB-specific methods:
      * <ul>

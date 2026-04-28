@@ -40,7 +40,7 @@ class MongoNestedTransactionInheritanceSpec extends GormDatastoreSpec {
 
             // Child call using withNativeTransaction starts a native transaction
             def childResult = Item.withNativeTransaction { nativeSession ->
-                new Item(name: "RegularChild").save(flush: true)
+                new Item(name: "RegularChild").save()
                 return Item.isInNativeTransaction()
             }
 
@@ -59,30 +59,28 @@ class MongoNestedTransactionInheritanceSpec extends GormDatastoreSpec {
     def "test deep nesting inheritance"() {
         when: "deep nested calls inherit parent transaction type"
         def result = Item.withNativeTransaction { session1 ->
-            new Item(name: "Level1").save(flush: true)
+            new Item(name: "Level1").save()
             
             Item.withTransaction { status ->
                 new Item(name: "Level2").save(flush: true)
                 
                 Item.withNativeTransaction { session2 ->
-                    new Item(name: "Level3").save(flush: true)
+                    new Item(name: "Level3").save()
                     
                     return [
-                        level1Native: session1 != null,
-                        level2Native: Item.isInNativeTransaction(),
-                        level3Native: Item.isInNativeTransaction(),
-                        sameSession: session1 == session2
+                        level1NativeExists: session1 != null,
+                        level3IsNative: Item.isInNativeTransaction(),
+                        nativeSessionsAreTheSame: session1 == session2
                     ]
                 }
             }
         }
         
         then:
-        result.level1Native == true
-        result.level2Native == true
-        result.level3Native == true
-        result.sameSession == true
-        Item.count() == 3
+        result.level1NativeExists == true
+        result.level3IsNative == true
+        result.nativeSessionsAreTheSame == true
+        Item.count() == old(Item.count()) + 3
     }
 }
 

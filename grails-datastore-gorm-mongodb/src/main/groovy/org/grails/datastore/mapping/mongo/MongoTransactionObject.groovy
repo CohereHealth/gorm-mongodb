@@ -18,6 +18,14 @@ class MongoTransactionObject implements Transaction<ClientSession> {
     private boolean active = true
     private boolean rollbackOnly = false
     private final boolean isNested = false
+    // Tracks whether this transaction pushed the session to MongoNativeTransactionContext
+    // If true, it's responsible for popping during cleanup
+    public boolean pushedToContext = false
+    // Tracks whether this transaction bound the resource to TransactionSynchronizationManager
+    // If true, it's responsible for unbinding during cleanup
+    public boolean boundResource = false
+    // For REQUIRES_NEW: stores the suspended programmatic transaction session
+    public ClientSession suspendedContextSession = null
 
     MongoTransactionObject(MongoSessionHolder mongoSessionHolder) {
         this.mongoSessionHolder = mongoSessionHolder
@@ -26,6 +34,10 @@ class MongoTransactionObject implements Transaction<ClientSession> {
     @Nullable
     MongoSessionHolder getMongoSessionHolder() {
         return mongoSessionHolder
+    }
+
+    void setMongoSessionHolder(MongoSessionHolder sessionHolder) {
+        this.mongoSessionHolder = sessionHolder
     }
 
     @Override

@@ -7,6 +7,7 @@ dependencies {
     api project(":grails-datastore-gorm-bson")
 
     implementation "com.github.ben-manes.caffeine:caffeine:$caffeineVersion"
+    implementation "org.springframework:spring-aop:$springVersion"
 
     compileOnly "org.grails:grails-datastore-gorm-support:$datastoreVersion", {
         exclude group:'org.grails', module:'grails-datastore-gorm-hibernate-core'

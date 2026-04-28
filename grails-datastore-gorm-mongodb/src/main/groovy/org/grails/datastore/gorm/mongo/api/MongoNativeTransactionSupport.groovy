@@ -69,15 +69,21 @@ trait MongoNativeTransactionSupport<D> {
         ClientSession clientSession = null
         MongoNativeCodecSession nativeCodecSession = null
 
+        boolean createdHolder = false
         try {
             clientSession = mongoClient.startSession()
             clientSession.startTransaction()
             MongoNativeTransactionContext.pushNativeSession(clientSession)
-            
+
             // Push a native session onto the holder so getCurrentSession() returns it
             nativeCodecSession = new MongoNativeCodecSession(mongoDatastore, mongoDatastore.mappingContext, mongoDatastore.applicationEventPublisher, false)
             SessionHolder holder = (SessionHolder) TransactionSynchronizationManager.getResource(mongoDatastore)
-            if (holder != null) {
+            if (holder == null) {
+                // No SessionHolder exists - create one for this programmatic transaction
+                holder = new SessionHolder(nativeCodecSession)
+                TransactionSynchronizationManager.bindResource(mongoDatastore, holder)
+                createdHolder = true
+            } else {
                 holder.addSession(nativeCodecSession)
             }
 
@@ -94,9 +100,19 @@ trait MongoNativeTransactionSupport<D> {
             if (nativeCodecSession != null) {
                 SessionHolder holder = (SessionHolder) TransactionSynchronizationManager.getResource(mongoDatastore)
                 if (holder != null) {
-                    holder.removeSession(nativeCodecSession)
+                    if (createdHolder) {
+                        // We created this holder - unbind it completely and disconnect the session
+                        TransactionSynchronizationManager.unbindResource(mongoDatastore)
+                    } else {
+                        // We added to existing holder - just remove our session
+                        holder.removeSession(nativeCodecSession)
+                    }
                 }
                 nativeCodecSession.clear()
+                // If we created the holder, we need to disconnect the session
+                if (createdHolder) {
+                    nativeCodecSession.disconnect()
+                }
             }
             // Flush and clear any outer session that might have cached objects.
             // IMPORTANT: We must flush() before clear() to persist any pending changes
@@ -104,10 +120,14 @@ trait MongoNativeTransactionSupport<D> {
             // writes (e.g., save(flush: false)) would be lost. After flushing, we clear
             // the session cache to ensure subsequent reads see the changes committed by
             // the native transaction, preventing stale cache reads.
-            def outerSession = DatastoreUtils.getSession(mongoDatastore, false)
-            if (outerSession != null && outerSession != nativeCodecSession) {
-                outerSession.flush()  // Persist pending changes before clearing
-                outerSession.clear()  // Then invalidate cache to prevent stale reads
+            // Only do this if we did not create the holder (i.e., there's an outer session)
+            if (!createdHolder) {
+                def outerSession = DatastoreUtils.getSession(mongoDatastore, false)
+                if (outerSession != null && outerSession != nativeCodecSession) {
+                    outerSession.flush()  // Persist pending changes before clearing
+                    outerSession.clear()  // Then invalidate cache to prevent stale reads
+                }
+                nativeCodecSession.clear()
             }
             clientSession?.close()
         }

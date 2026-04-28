@@ -35,8 +35,10 @@ import org.springframework.context.ApplicationContextAware
 import org.springframework.context.ConfigurableApplicationContext
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.context.annotation.Import
 import org.springframework.core.env.ConfigurableEnvironment
 import org.springframework.transaction.PlatformTransactionManager
+import org.grails.datastore.mapping.mongo.config.MongoNativeTransactionAopConfiguration
 
 import java.beans.Introspector
 
@@ -51,6 +53,7 @@ import java.beans.Introspector
 @Configuration
 @ConditionalOnMissingBean(MongoDatastore)
 @AutoConfigureAfter(MongoAutoConfiguration)
+@Import(MongoNativeTransactionAopConfiguration)
 class MongoDbGormAutoConfiguration implements ApplicationContextAware{
 
     @Autowired(required = false)

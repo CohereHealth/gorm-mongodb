@@ -246,6 +246,18 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
         !MongoNativeTransactionContext.hasNativeSession()
     }
 
+    void "test association handling in native transaction"() {
+        given:
+        def person = new Person(firstName: "Owner", lastName: "Assoc", age: 30).save(flush: true)
+
+        when:
+        Person.withNativeTransaction {
+            new Pet(name: "Fluffy", owner: person).save()
+
+        then:
+        Pet.findByName("Fluffy").owner.id == person.id
+    }
+
     void "test collection access with native session"() {
         when: "accessing collection within native transaction"
         def collection = null

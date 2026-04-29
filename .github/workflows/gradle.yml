@@ -31,10 +31,11 @@ jobs:
           distribution: 'adopt'
           java-version: '11'
       - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@v1.10.0
-        with:
-          mongodb-version: ${{ matrix.mongodb-version }}
-          mongodb-replica-set: rs0
+        run: |
+          docker run -d --name mongodb-ci -p 27017:27017 mongo:${{ matrix.mongodb-version }} --replSet rs0
+          for i in {1..60}; do docker exec mongodb-ci mongosh --eval "db.adminCommand({ping: 1})" > /dev/null 2>&1 && break || docker exec mongodb-ci mongo --eval "db.adminCommand({ping: 1})" > /dev/null 2>&1 && break || sleep 1; done
+          docker exec mongodb-ci mongosh --eval "rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'localhost:27017'}]})" 2>/dev/null || docker exec mongodb-ci mongo --eval "rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'localhost:27017'}]})"
+          for i in {1..30}; do docker exec mongodb-ci mongosh --eval "rs.status().ok" 2>/dev/null | grep -q 1 && break || docker exec mongodb-ci mongo --eval "rs.status().ok" 2>/dev/null | grep -q 1 && break || sleep 1; done
       - name: Run Example Integration Tests
         uses: gradle/gradle-build-action@v3
         env:

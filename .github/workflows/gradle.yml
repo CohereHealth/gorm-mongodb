@@ -74,8 +74,8 @@ jobs:
         echo "Domain: coherehealth-main"
         echo "Region: us-east-2"
 
-        echo "Listing available CodeArtifact repositories..."
-        aws codeartifact list-repositories \
+        echo "Listing available CodeArtifact repositories in domain..."
+        aws codeartifact list-repositories-in-domain \
           --domain coherehealth-main \
           --domain-owner $AWS_ACCOUNT_ID \
           --region us-east-2 \

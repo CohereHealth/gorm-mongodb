@@ -16,6 +16,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     continue-on-error: true
     env:
       WORKSPACE: ${{ github.workspace }}
@@ -49,7 +52,7 @@ jobs:
           arguments: build -Dgeb.env=chromeHeadless
   publish:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     needs: [build]
     env:
       WORKSPACE: ${{ github.workspace }}
@@ -59,41 +62,29 @@ jobs:
       uses: actions/setup-java@v4
       with:
         distribution: 'adopt'
-        java-version: '11'
-    - name: Publish to repo.grails.org
-      id: publish
-      uses: gradle/gradle-build-action@v3
-      env:
-        GRADLE_ENTERPRISE_ACCESS_KEY: ${{ secrets.GRADLE_ENTERPRISE_ACCESS_KEY }}
-        ARTIFACTORY_USERNAME: ${{ secrets.ARTIFACTORY_USERNAME }}
-        ARTIFACTORY_PASSWORD: ${{ secrets.ARTIFACTORY_PASSWORD }}
+        java-version: '8'
+    - name: Configure AWS credentials
+      if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      uses: aws-actions/configure-aws-credentials@v4
       with:
-        arguments: -Dorg.gradle.internal.publish.checksums.insecure=true publish
-    - name: Build Docs
-      id: docs
-      if: steps.build.outcome == 'success'
-      uses: gradle/gradle-build-action@v3
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        aws-region: ${{ secrets.AWS_REGION }}
+    - name: Publish snapshot to CodeArtifact
+      if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       env:
-        GRADLE_ENTERPRISE_ACCESS_KEY: ${{ secrets.GRADLE_ENTERPRISE_ACCESS_KEY }}
-      with:
-        arguments: docs:docs
-    - name: Determine docs target repository
-      if: steps.docs.outcome == 'success'
-      uses: haya14busa/action-cond@v1
-      id: docs_target
-      with:
-        cond: ${{ github.repository == 'grails/gorm-mongodb' }}
-        if_true: "grails/grails-data-mapping"
-        if_false: ${{ github.repository }}
-    - name: Publish to Github Pages
-      if: steps.docs.outcome == 'success'
-      uses: micronaut-projects/github-pages-deploy-action@master
-      env:
-        TARGET_REPOSITORY: ${{ steps.docs_target.outputs.value }}
-        GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        BRANCH: gh-pages
-        FOLDER: docs/build/docs
-        DOC_SUB_FOLDER: mongodb
-        DOC_FOLDER: gh-pages
-        COMMIT_EMAIL: behlp@objectcomputing.com
-        COMMIT_NAME: Puneet Behl
+        CODEARTIFACT_DOMAIN: ${{ secrets.CODEARTIFACT_DOMAIN }}
+        CODEARTIFACT_REPO: ${{ secrets.CODEARTIFACT_REPO }}
+        AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+        AWS_REGION: ${{ secrets.AWS_REGION }}
+      run: |
+        export CODEARTIFACT_AUTH_TOKEN=$(aws codeartifact get-authorization-token --domain $CODEARTIFACT_DOMAIN --domain-owner $AWS_ACCOUNT_ID --query authorizationToken --output text)
+        if [ -z "$CODEARTIFACT_AUTH_TOKEN" ]; then
+          echo "Failed to retrieve CodeArtifact token"
+          exit 1
+        fi
+        ./gradlew publish \
+          -PcodeartifactToken=$CODEARTIFACT_AUTH_TOKEN \
+          -PcodeartifactDomain=$CODEARTIFACT_DOMAIN \
+          -PcodeartifactRepo=$CODEARTIFACT_REPO \
+          -PawsAccountId=$AWS_ACCOUNT_ID \
+          -PawsRegion=$AWS_REGION

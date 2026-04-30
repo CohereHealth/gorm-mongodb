@@ -270,17 +270,41 @@ subprojects { project ->
 
         if (isBuildSnapshot) {
             repositories {
-                maven {
-                    credentials {
-                        def u = System.getenv("ARTIFACTORY_USERNAME") ?: project.hasProperty("artifactoryPublishUsername") ? project.artifactoryPublishUsername : ''
-                        def p = System.getenv("ARTIFACTORY_PASSWORD") ?: project.hasProperty("artifactoryPublishPassword") ? project.artifactoryPublishPassword : ''
-                        username = u
-                        password = p
+                // Check if CodeArtifact properties are provided
+                if (project.hasProperty("codeartifactToken") && project.hasProperty("awsAccountId")) {
+                    def accountId = project.property("awsAccountId")
+                    def token = project.property("codeartifactToken")
+
+                    // Cohere's CodeArtifact URL format
+                    def codeartifactUrl = "https://coherehealth-main-${accountId}.d.codeartifact.us-east-2.amazonaws.com/maven/coherehealth-main/"
+
+                    logger.lifecycle "=== CodeArtifact Configuration ==="
+                    logger.lifecycle "Account ID: ${accountId}"
+                    logger.lifecycle "URL: ${codeartifactUrl}"
+                    logger.lifecycle "Token exists: ${token != null && !token.isEmpty()}"
+
+                    maven {
+                        name = "CodeArtifact"
+                        url codeartifactUrl
+                        credentials {
+                            username "aws"
+                            password token
+                        }
                     }
-                    if (isGrails3PluginProject) {
-                        url "https://repo.grails.org/grails/plugins3-snapshots-local"
-                    } else {
-                        url "https://repo.grails.org/grails/libs-snapshots-local"
+                } else {
+                    // Fallback to Artifactory
+                    maven {
+                        credentials {
+                            def u = System.getenv("ARTIFACTORY_USERNAME") ?: project.hasProperty("artifactoryPublishUsername") ? project.artifactoryPublishUsername : ''
+                            def p = System.getenv("ARTIFACTORY_PASSWORD") ?: project.hasProperty("artifactoryPublishPassword") ? project.artifactoryPublishPassword : ''
+                            username = u
+                            password = p
+                        }
+                        if (isGrails3PluginProject) {
+                            url "https://repo.grails.org/grails/plugins3-snapshots-local"
+                        } else {
+                            url "https://repo.grails.org/grails/libs-snapshots-local"
+                        }
                     }
                 }
             }

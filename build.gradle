@@ -270,17 +270,29 @@ subprojects { project ->
 
         if (isBuildSnapshot) {
             repositories {
-                maven {
-                    credentials {
-                        def u = System.getenv("ARTIFACTORY_USERNAME") ?: project.hasProperty("artifactoryPublishUsername") ? project.artifactoryPublishUsername : ''
-                        def p = System.getenv("ARTIFACTORY_PASSWORD") ?: project.hasProperty("artifactoryPublishPassword") ? project.artifactoryPublishPassword : ''
-                        username = u
-                        password = p
+                // CodeArtifact publishing for Cohere
+                if (project.hasProperty("codeartifactToken")) {
+                    maven {
+                        url "https://coherehealth-main-${project.property('awsAccountId')}.d.codeartifact.us-east-2.amazonaws.com/maven/coherehealth-main/"
+                        credentials {
+                            username "aws"
+                            password project.property("codeartifactToken")
+                        }
                     }
-                    if (isGrails3PluginProject) {
-                        url "https://repo.grails.org/grails/plugins3-snapshots-local"
-                    } else {
-                        url "https://repo.grails.org/grails/libs-snapshots-local"
+                } else {
+                    // Default Artifactory publishing
+                    maven {
+                        credentials {
+                            def u = System.getenv("ARTIFACTORY_USERNAME") ?: project.hasProperty("artifactoryPublishUsername") ? project.artifactoryPublishUsername : ''
+                            def p = System.getenv("ARTIFACTORY_PASSWORD") ?: project.hasProperty("artifactoryPublishPassword") ? project.artifactoryPublishPassword : ''
+                            username = u
+                            password = p
+                        }
+                        if (isGrails3PluginProject) {
+                            url "https://repo.grails.org/grails/plugins3-snapshots-local"
+                        } else {
+                            url "https://repo.grails.org/grails/libs-snapshots-local"
+                        }
                     }
                 }
             }

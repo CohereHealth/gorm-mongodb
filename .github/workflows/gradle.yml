@@ -67,19 +67,20 @@ jobs:
     - name: Publish snapshot to CodeArtifact
       if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       env:
-        CODEARTIFACT_DOMAIN: ${{ secrets.CODEARTIFACT_DOMAIN }}
-        CODEARTIFACT_REPO: ${{ secrets.CODEARTIFACT_REPO }}
         AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-        AWS_REGION: us-east-2
       run: |
         echo "=== Publishing to CodeArtifact ==="
-        echo "Domain: $CODEARTIFACT_DOMAIN"
-        echo "Repo: $CODEARTIFACT_REPO"
-        echo "Account: $AWS_ACCOUNT_ID"
-        echo "Region: $AWS_REGION"
+        echo "Account ID: $AWS_ACCOUNT_ID"
+        echo "Domain: coherehealth-main"
+        echo "Region: us-east-2"
 
         echo "Getting CodeArtifact authorization token..."
-        export CODEARTIFACT_AUTH_TOKEN=$(aws codeartifact get-authorization-token --domain $CODEARTIFACT_DOMAIN --domain-owner $AWS_ACCOUNT_ID --query authorizationToken --output text)
+        export CODEARTIFACT_AUTH_TOKEN=$(aws codeartifact get-authorization-token \
+          --domain coherehealth-main \
+          --domain-owner $AWS_ACCOUNT_ID \
+          --region us-east-2 \
+          --query authorizationToken \
+          --output text)
 
         if [ -z "$CODEARTIFACT_AUTH_TOKEN" ]; then
           echo "❌ Failed to retrieve CodeArtifact token"
@@ -91,9 +92,6 @@ jobs:
 
         ./gradlew publish \
           -PcodeartifactToken=$CODEARTIFACT_AUTH_TOKEN \
-          -PcodeartifactDomain=$CODEARTIFACT_DOMAIN \
-          -PcodeartifactRepo=$CODEARTIFACT_REPO \
-          -PawsAccountId=$AWS_ACCOUNT_ID \
-          -PawsRegion=$AWS_REGION
+          -PawsAccountId=$AWS_ACCOUNT_ID
 
         echo "✅ Publish completed successfully"

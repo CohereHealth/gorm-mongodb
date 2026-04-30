@@ -46,28 +46,51 @@ jobs:
       with:
         distribution: 'adopt'
         java-version: '8'
+    - name: Debug - Check secrets availability
+      run: |
+        echo "=== Checking Secrets Configuration ==="
+        echo "AWS_ROLE_ARN exists: ${{ secrets.AWS_ROLE_ARN != '' }}"
+        echo "AWS_ACCOUNT_ID exists: ${{ secrets.AWS_ACCOUNT_ID != '' }}"
+        echo "CODEARTIFACT_DOMAIN exists: ${{ secrets.CODEARTIFACT_DOMAIN != '' }}"
+        echo "CODEARTIFACT_REPO exists: ${{ secrets.CODEARTIFACT_REPO != '' }}"
+        echo "Event name: ${{ github.event_name }}"
+        echo "Branch: ${{ github.ref }}"
     - name: Configure AWS credentials
       if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-        aws-region: ${{ secrets.AWS_REGION }}
+        aws-region: us-east-2
     - name: Publish snapshot to CodeArtifact
       if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       env:
         CODEARTIFACT_DOMAIN: ${{ secrets.CODEARTIFACT_DOMAIN }}
         CODEARTIFACT_REPO: ${{ secrets.CODEARTIFACT_REPO }}
         AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-        AWS_REGION: ${{ secrets.AWS_REGION }}
+        AWS_REGION: us-east-2
       run: |
+        echo "=== Publishing to CodeArtifact ==="
+        echo "Domain: $CODEARTIFACT_DOMAIN"
+        echo "Repo: $CODEARTIFACT_REPO"
+        echo "Account: $AWS_ACCOUNT_ID"
+        echo "Region: $AWS_REGION"
+
+        echo "Getting CodeArtifact authorization token..."
         export CODEARTIFACT_AUTH_TOKEN=$(aws codeartifact get-authorization-token --domain $CODEARTIFACT_DOMAIN --domain-owner $AWS_ACCOUNT_ID --query authorizationToken --output text)
+
         if [ -z "$CODEARTIFACT_AUTH_TOKEN" ]; then
-          echo "Failed to retrieve CodeArtifact token"
+          echo "❌ Failed to retrieve CodeArtifact token"
           exit 1
         fi
+
+        echo "✅ CodeArtifact token retrieved successfully"
+        echo "Publishing artifacts..."
+
         ./gradlew publish \
           -PcodeartifactToken=$CODEARTIFACT_AUTH_TOKEN \
           -PcodeartifactDomain=$CODEARTIFACT_DOMAIN \
           -PcodeartifactRepo=$CODEARTIFACT_REPO \
           -PawsAccountId=$AWS_ACCOUNT_ID \
           -PawsRegion=$AWS_REGION
+
+        echo "✅ Publish completed successfully"

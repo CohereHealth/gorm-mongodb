@@ -48,7 +48,7 @@ jobs:
       uses: actions/setup-java@v4
       with:
         distribution: 'adopt'
-        java-version: '8'
+        java-version: '11'
     - name: Debug - Check secrets availability
       run: |
         echo "=== Checking Secrets Configuration ==="

@@ -54,10 +54,10 @@ jobs:
         echo "=== Checking Secrets Configuration ==="
         echo "AWS_ROLE_ARN exists: ${{ secrets.AWS_ROLE_ARN != '' }}"
         echo "AWS_ACCOUNT_ID exists: ${{ secrets.AWS_ACCOUNT_ID != '' }}"
-        echo "CODEARTIFACT_DOMAIN exists: ${{ secrets.CODEARTIFACT_DOMAIN != '' }}"
-        echo "CODEARTIFACT_REPO exists: ${{ secrets.CODEARTIFACT_REPO != '' }}"
         echo "Event name: ${{ github.event_name }}"
         echo "Branch: ${{ github.ref }}"
+        echo "CodeArtifact domain: coherehealth-main (hardcoded)"
+        echo "CodeArtifact region: us-east-2 (hardcoded)"
     - name: Configure AWS credentials
       if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       uses: aws-actions/configure-aws-credentials@v4

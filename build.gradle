@@ -185,10 +185,10 @@ subprojects { project ->
     apply plugin: 'groovy'
 
     if (isPluginProject) {
-        group "org.grails.plugins"
+        group "com.coherehealth.grails.plugins"
         version(rootProject.version)
     } else {
-        group "org.grails"
+        group "com.coherehealth.grails"
         version rootProject.version
     }
 

@@ -16,9 +16,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
     continue-on-error: true
     env:
       WORKSPACE: ${{ github.workspace }}
@@ -33,6 +30,24 @@ jobs:
         with:
           distribution: 'adopt'
           java-version: '11'
+      - name: Start MongoDB
+        run: |
+          docker run -d --name mongodb-ci -p 27017:27017 mongo:${{ matrix.mongodb-version }} --replSet rs0
+          for i in {1..60}; do docker exec mongodb-ci mongosh --eval "db.adminCommand({ping: 1})" > /dev/null 2>&1 && break || docker exec mongodb-ci mongo --eval "db.adminCommand({ping: 1})" > /dev/null 2>&1 && break || sleep 1; done
+          docker exec mongodb-ci mongosh --eval "rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'localhost:27017'}]})" 2>/dev/null || docker exec mongodb-ci mongo --eval "rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'localhost:27017'}]})"
+          for i in {1..30}; do docker exec mongodb-ci mongosh --eval "rs.status().ok" 2>/dev/null | grep -q 1 && break || docker exec mongodb-ci mongo --eval "rs.status().ok" 2>/dev/null | grep -q 1 && break || sleep 1; done
+      - name: Run Example Integration Tests
+        uses: gradle/gradle-build-action@v3
+        env:
+          GRADLE_ENTERPRISE_ACCESS_KEY: ${{ secrets.GRADLE_ENTERPRISE_ACCESS_KEY }}
+        with:
+          arguments: :examples-mongodb-native-session:integrationTest
+      - name: Run Build
+        uses: gradle/gradle-build-action@v3
+        env:
+          GRADLE_ENTERPRISE_ACCESS_KEY: ${{ secrets.GRADLE_ENTERPRISE_ACCESS_KEY }}
+        with:
+          arguments: build -Dgeb.env=chromeHeadless
   publish:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
@@ -49,71 +64,21 @@ jobs:
       with:
         distribution: 'adopt'
         java-version: '11'
-    - name: Debug - Check secrets availability
-      run: |
-        echo "=== Checking Secrets Configuration ==="
-        echo "AWS_ROLE_ARN exists: ${{ secrets.AWS_ROLE_ARN != '' }}"
-        echo "AWS_ACCOUNT_ID exists: ${{ secrets.AWS_ACCOUNT_ID != '' }}"
-        echo "Event name: ${{ github.event_name }}"
-        echo "Branch: ${{ github.ref }}"
-        echo "CodeArtifact domain: coherehealth-main (hardcoded)"
-        echo "CodeArtifact region: us-east-2 (hardcoded)"
     - name: Configure AWS credentials
-      if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
         aws-region: us-east-2
     - name: Publish snapshot to CodeArtifact
-      if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       env:
         AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
       run: |
-        echo "=== Publishing to CodeArtifact ==="
-        echo "Account ID: $AWS_ACCOUNT_ID"
-        echo "Domain: coherehealth-main"
-        echo "Region: us-east-2"
-
-        echo "Listing available CodeArtifact repositories in domain..."
-        aws codeartifact list-repositories-in-domain \
-          --domain coherehealth-main \
-          --domain-owner $AWS_ACCOUNT_ID \
-          --region us-east-2 \
-          --query 'repositories[*].name' \
-          --output table
-
-        echo ""
-        echo "Getting CodeArtifact authorization token..."
         export CODEARTIFACT_AUTH_TOKEN=$(aws codeartifact get-authorization-token \
           --domain coherehealth-main \
           --domain-owner $AWS_ACCOUNT_ID \
           --region us-east-2 \
           --query authorizationToken \
           --output text)
-
-        if [ -z "$CODEARTIFACT_AUTH_TOKEN" ]; then
-          echo "❌ Failed to retrieve CodeArtifact token"
-          exit 1
-        fi
-
-        echo "✅ CodeArtifact token retrieved successfully"
-        echo "Publishing artifacts..."
-
         ./gradlew publish \
           -PcodeartifactToken=$CODEARTIFACT_AUTH_TOKEN \
-          -PawsAccountId=$AWS_ACCOUNT_ID \
-          --info \
-          --stacktrace || {
-            echo ""
-            echo "❌ Publish failed!"
-            echo ""
-            echo "Checking CodeArtifact repository configuration..."
-            aws codeartifact describe-repository \
-              --domain coherehealth-main \
-              --domain-owner $AWS_ACCOUNT_ID \
-              --repository coherehealth-main \
-              --region us-east-2
-            exit 1
-          }
-
-        echo "✅ Publish completed successfully"
+          -PawsAccountId=$AWS_ACCOUNT_ID

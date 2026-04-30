@@ -254,7 +254,7 @@ subprojects { project ->
         testImplementation "org.spockframework:spock-core:$spockVersion", { transitive = false }
         testImplementation "org.junit.jupiter:junit-jupiter-api:5.8.1"
         testImplementation "org.junit.platform:junit-platform-runner:1.8.1"
-        testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:5.8.1"
+        testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:5.8.2"
     }
 
     groovydoc.classpath += configurations.documentation
@@ -306,6 +306,22 @@ subprojects { project ->
                         url "https://repo.grails.org/grails/plugins3-snapshots-local"
                     } else {
                         url "https://repo.grails.org/grails/libs-snapshots-local"
+                    }
+                }
+                if (project.hasProperty('codeartifactToken')) {
+                    def codeartifactDomain = project.property('codeartifactDomain')
+                    def codeartifactRepo = project.property('codeartifactRepo')
+                    def awsAccountId = project.property('awsAccountId')
+                    def awsRegion = project.property('awsRegion')
+                    def codeartifactUrl = "https://${codeartifactDomain}-${awsAccountId}.d.codeartifact.${awsRegion}.amazonaws.com/maven/${codeartifactRepo}/"
+
+                    maven {
+                        name 'codeartifact'
+                        url codeartifactUrl
+                        credentials {
+                            username 'aws'
+                            password project.property('codeartifactToken')
+                        }
                     }
                 }
             }

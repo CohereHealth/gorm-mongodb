@@ -74,6 +74,15 @@ jobs:
         echo "Domain: coherehealth-main"
         echo "Region: us-east-2"
 
+        echo "Listing available CodeArtifact repositories..."
+        aws codeartifact list-repositories \
+          --domain coherehealth-main \
+          --domain-owner $AWS_ACCOUNT_ID \
+          --region us-east-2 \
+          --query 'repositories[*].name' \
+          --output table
+
+        echo ""
         echo "Getting CodeArtifact authorization token..."
         export CODEARTIFACT_AUTH_TOKEN=$(aws codeartifact get-authorization-token \
           --domain coherehealth-main \
@@ -92,6 +101,19 @@ jobs:
 
         ./gradlew publish \
           -PcodeartifactToken=$CODEARTIFACT_AUTH_TOKEN \
-          -PawsAccountId=$AWS_ACCOUNT_ID
+          -PawsAccountId=$AWS_ACCOUNT_ID \
+          --info \
+          --stacktrace || {
+            echo ""
+            echo "❌ Publish failed!"
+            echo ""
+            echo "Checking CodeArtifact repository configuration..."
+            aws codeartifact describe-repository \
+              --domain coherehealth-main \
+              --domain-owner $AWS_ACCOUNT_ID \
+              --repository coherehealth-main \
+              --region us-east-2
+            exit 1
+          }
 
         echo "✅ Publish completed successfully"

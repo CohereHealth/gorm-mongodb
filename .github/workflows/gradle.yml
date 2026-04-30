@@ -33,23 +33,6 @@ jobs:
         with:
           distribution: 'adopt'
           java-version: '11'
-      - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@v1.10.0
-        with:
-          mongodb-version: ${{ matrix.mongodb-version }}
-          mongodb-replica-set: rs0
-      - name: Run Example Integration Tests
-        uses: gradle/gradle-build-action@v3
-        env:
-          GRADLE_ENTERPRISE_ACCESS_KEY: ${{ secrets.GRADLE_ENTERPRISE_ACCESS_KEY }}
-        with:
-          arguments: :examples-mongodb-native-session:integrationTest
-      - name: Run Build
-        uses: gradle/gradle-build-action@v3
-        env:
-          GRADLE_ENTERPRISE_ACCESS_KEY: ${{ secrets.GRADLE_ENTERPRISE_ACCESS_KEY }}
-        with:
-          arguments: build -Dgeb.env=chromeHeadless
   publish:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'

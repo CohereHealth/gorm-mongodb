@@ -54,14 +54,14 @@ jobs:
       uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-        aws-region: ${{ secrets.AWS_REGION }}
+        aws-region: us-east-2
     - name: Publish snapshot to CodeArtifact
       if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       env:
         CODEARTIFACT_DOMAIN: ${{ secrets.CODEARTIFACT_DOMAIN }}
         CODEARTIFACT_REPO: ${{ secrets.CODEARTIFACT_REPO }}
         AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-        AWS_REGION: ${{ secrets.AWS_REGION }}
+        AWS_REGION: us-east-2
       run: |
         export CODEARTIFACT_AUTH_TOKEN=$(aws codeartifact get-authorization-token --domain $CODEARTIFACT_DOMAIN --domain-owner $AWS_ACCOUNT_ID --query authorizationToken --output text)
         if [ -z "$CODEARTIFACT_AUTH_TOKEN" ]; then

@@ -74,21 +74,27 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
     }
 
     void "test propagation MANDATORY - throws IllegalTransactionStateException"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "calling MANDATORY propagation without existing transaction"
         testService.createProviderWithPropagationMandatory(firstName: "Mandatory", lastName: "Test", age: 35)
 
         then: "IllegalTransactionStateException thrown - Spring checks MANDATORY before our validation"
         thrown(IllegalTransactionStateException)
-        Provider.count() == 0
+        Provider.count() == initialCount
     }
 
     void "test propagation NESTED - throws UnsupportedOperationException"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "using NESTED propagation"
         testService.createProviderWithPropagationNested(firstName: "Nested", lastName: "Test", age: 50)
 
         then: "UnsupportedOperationException thrown - NESTED not supported in v1"
         thrown(UnsupportedOperationException)
-        Provider.count() == 0
+        Provider.count() == initialCount
     }
 
     // ========================================
@@ -96,22 +102,28 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
     // ========================================
 
     void "test timeout parameter - successful within timeout"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "operation completes within timeout"
         def provider = testService.createProviderWithTimeout10Seconds(firstName: "FastOp", lastName: "Test", age: 30)
 
         then: "transaction succeeds"
         provider != null
-        Provider.count() == 1
+        Provider.count() == initialCount + 1
     }
 
 
     void "test timeout parameter - timeout set correctly"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "calling method with timeout"
         def provider = testService.createProviderWithTimeout5Seconds(firstName: "Timeout", lastName: "Test", age: 32)
 
         then: "succeeds without hitting timeout"
         provider != null
-        Provider.count() == 1
+        Provider.count() == initialCount + 1
     }
 
     // ========================================
@@ -119,6 +131,9 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
     // ========================================
 
     void "test rollbackFor - rolls back on specified checked exception"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "IOException occurs (checked exception in rollbackFor)"
         testService.createProviderWithRollbackForIOException(
             [firstName: "RollbackIO", lastName: "Test", age: 40],
@@ -127,10 +142,13 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "exception thrown and transaction rolled back"
         thrown(IOException)
-        Provider.count() == 0
+        Provider.count() == initialCount
     }
 
     void "test rollbackFor - commits if exception not thrown"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "no exception occurs"
         def provider = testService.createProviderWithRollbackForIOException(
             [firstName: "NoException", lastName: "Test", age: 41],
@@ -139,10 +157,13 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "transaction commits"
         provider != null
-        Provider.count() == 1
+        Provider.count() == initialCount + 1
     }
 
     void "test rollbackFor - multiple exception types"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "IllegalArgumentException occurs"
         testService.createProviderWithRollbackForMultipleExceptions(
             [firstName: "MultiEx1", lastName: "Test", age: 42],
@@ -151,7 +172,7 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "rolls back"
         thrown(IllegalArgumentException)
-        Provider.count() == 0
+        Provider.count() == initialCount
 
         when: "IllegalStateException occurs"
         testService.createProviderWithRollbackForMultipleExceptions(
@@ -161,10 +182,13 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "also rolls back"
         thrown(IllegalStateException)
-        Provider.count() == 0
+        Provider.count() == initialCount
     }
 
     void "test rollbackFor - Exception.class catches all"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "any exception occurs"
         testService.createProviderWithRollbackForAllExceptions(
             [firstName: "AnyEx", lastName: "Test", age: 44],
@@ -173,7 +197,7 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "rolls back"
         thrown(Exception)
-        Provider.count() == 0
+        Provider.count() == initialCount
     }
 
     // ========================================
@@ -181,6 +205,9 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
     // ========================================
 
     void "test rollbackForClassName - rolls back on specified exception class name"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "IOException occurs via className"
         testService.createProviderWithRollbackForClassNameIOException(
             [firstName: "ClassName1", lastName: "Test", age: 50],
@@ -189,10 +216,13 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "rolls back"
         thrown(IOException)
-        Provider.count() == 0
+        Provider.count() == initialCount
     }
 
     void "test rollbackForClassName - multiple class names"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "SQLException occurs"
         testService.createProviderWithRollbackForMultipleClassNames(
             [firstName: "SQL", lastName: "Test", age: 51],
@@ -201,7 +231,7 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "rolls back"
         thrown(java.sql.SQLException)
-        Provider.count() == 0
+        Provider.count() == initialCount
 
         when: "SocketException occurs"
         testService.createProviderWithRollbackForMultipleClassNames(
@@ -211,7 +241,7 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "also rolls back"
         thrown(java.net.SocketException)
-        Provider.count() == 0
+        Provider.count() == initialCount
     }
 
     // ========================================
@@ -219,6 +249,9 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
     // ========================================
 
     void "test noRollbackFor - does NOT rollback on specified exception"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "BusinessException occurs (in noRollbackFor)"
         testService.createProviderWithNoRollbackForBusinessException(
             [firstName: "NoRollback", lastName: "Test", age: 60],
@@ -227,11 +260,14 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "exception thrown but transaction COMMITS"
         thrown(BusinessException)
-        Provider.count() == 1
+        Provider.count() == initialCount + 1
         Provider.findByFirstName("NoRollback") != null
     }
 
     void "test noRollbackFor - commits normally without exception"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "no exception occurs"
         def provider = testService.createProviderWithNoRollbackForBusinessException(
             [firstName: "Normal", lastName: "Test", age: 61],
@@ -240,10 +276,13 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "commits normally"
         provider != null
-        Provider.count() == 1
+        Provider.count() == initialCount + 1
     }
 
     void "test noRollbackFor - multiple exception types"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "BusinessException occurs"
         testService.createProviderWithNoRollbackForMultipleExceptions(
             [firstName: "Business", lastName: "Test", age: 62],
@@ -252,7 +291,7 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "does not rollback"
         thrown(BusinessException)
-        Provider.count() == 1
+        Provider.count() == initialCount + 1
 
         when: "CustomValidationException occurs"
         testService.createProviderWithNoRollbackForMultipleExceptions(
@@ -262,7 +301,7 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "also does not rollback"
         thrown(CustomValidationException)
-        Provider.count() == 2
+        Provider.count() == initialCount + 2
     }
 
     // ========================================
@@ -270,6 +309,9 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
     // ========================================
 
     void "test noRollbackForClassName - does NOT rollback on specified class name"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "BusinessException occurs via className"
         testService.createProviderWithNoRollbackForClassName(
             [firstName: "NoRollbackClass", lastName: "Test", age: 70],
@@ -278,10 +320,13 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "exception thrown but commits"
         thrown(BusinessException)
-        Provider.count() == 1
+        Provider.count() == initialCount + 1
     }
 
     void "test noRollbackForClassName - multiple class names"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "First exception type"
         testService.createProviderWithNoRollbackForMultipleClassNames(
             [firstName: "Class1", lastName: "Test", age: 71],
@@ -290,7 +335,7 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "does not rollback"
         thrown(BusinessException)
-        Provider.count() == 1
+        Provider.count() == initialCount + 1
 
         when: "Second exception type"
         testService.createProviderWithNoRollbackForMultipleClassNames(
@@ -300,7 +345,7 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "also does not rollback"
         thrown(CustomValidationException)
-        Provider.count() == 2
+        Provider.count() == initialCount + 2
     }
 
     // ========================================
@@ -308,6 +353,9 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
     // ========================================
 
     void "test combined parameters - all attributes together (success case)"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "using combined parameters successfully"
         def provider = testService.createProviderWithCombinedParameters(
             [firstName: "Combined", lastName: "Success", age: 80],
@@ -316,10 +364,13 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "succeeds with all parameters applied"
         provider != null
-        Provider.count() == 1
+        Provider.count() == initialCount + 1
     }
 
     void "test combined parameters - rollbackFor exception triggers rollback"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "IOException occurs (in rollbackFor)"
         testService.createProviderWithCombinedParameters(
             [firstName: "Combined", lastName: "Rollback", age: 81],
@@ -328,10 +379,13 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "rolls back"
         thrown(IOException)
-        Provider.count() == 0
+        Provider.count() == initialCount
     }
 
     void "test combined parameters - noRollbackFor exception commits"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "BusinessException occurs (in noRollbackFor)"
         testService.createProviderWithCombinedParameters(
             [firstName: "Combined", lastName: "NoRollback", age: 82],
@@ -340,10 +394,13 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "commits despite exception"
         thrown(BusinessException)
-        Provider.count() == 1
+        Provider.count() == initialCount + 1
     }
 
     void "test combined parameters - noRollbackFor takes precedence over rollbackFor"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "exception is in both rollbackFor and noRollbackFor"
         testService.createProviderWithConflictingRules(
             [firstName: "Conflict", lastName: "Test", age: 83],
@@ -352,10 +409,13 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "noRollbackFor takes precedence - commits"
         thrown(BusinessException)
-        Provider.count() == 1
+        Provider.count() == initialCount + 1
     }
 
     void "test combined parameters - regular exception still rolls back"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "RuntimeException occurs (not in noRollbackFor)"
         testService.createProviderWithConflictingRules(
             [firstName: "Runtime", lastName: "Test", age: 84],
@@ -364,7 +424,59 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "rolls back normally"
         thrown(RuntimeException)
-        Provider.count() == 0
+        Provider.count() == initialCount
+    }
+
+    // ========================================
+    // Default Rollback Behavior (No explicit rollbackFor)
+    // ========================================
+
+    void "test default rollback behavior - RuntimeException without rollbackFor"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
+        when: "RuntimeException thrown with NO rollbackFor specified"
+        testService.createProviderWithDefaultRollbackOnRuntimeException(
+            firstName: "DefaultRollback",
+            lastName: "Test",
+            age: 85
+        )
+
+        then: "rolls back by default (Spring's standard behavior)"
+        thrown(RuntimeException)
+        Provider.count() == initialCount
+    }
+
+    void "test default behavior - checked exception does NOT rollback"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
+        when: "checked exception (IOException) thrown with NO rollbackFor"
+        testService.createProviderWithDefaultBehaviorCheckedException(
+            [firstName: "CheckedException", lastName: "Test", age: 86],
+            true
+        )
+
+        then: "checked exception commits by default (Spring's standard behavior)"
+        thrown(IOException)
+        Provider.count() == initialCount + 1
+        Provider.findByFirstName("CheckedException") != null
+    }
+
+    void "test default behavior - successful completion commits"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
+        when: "no exception thrown"
+        def provider = testService.createProviderWithDefaultBehaviorSuccess(
+            firstName: "DefaultSuccess",
+            lastName: "Test",
+            age: 87
+        )
+
+        then: "commits normally"
+        provider != null
+        Provider.count() == initialCount + 1
     }
 
     // ========================================
@@ -372,6 +484,10 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
     // ========================================
 
     void "test annotation with nested programmatic transaction - both succeed"() {
+        given: "initial counts"
+        def initialProviderCount = Provider.count()
+        def initialAuditCount = AuditEvent.count()
+
         when: "annotated method calls programmatic transaction"
         def result = testService.createProviderWithMixedDeclarativeAndProgrammaticTransactions(
             firstName: "Mixed1",
@@ -382,11 +498,15 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
         then: "both committed"
         result.provider != null
         result.audit != null
-        Provider.count() == 1
-        AuditEvent.count() == 1
+        Provider.count() == initialProviderCount + 1
+        AuditEvent.count() == initialAuditCount + 1
     }
 
     void "test annotation with nested programmatic transaction - outer fails"() {
+        given: "initial counts"
+        def initialProviderCount = Provider.count()
+        def initialAuditCount = AuditEvent.count()
+
         when: "annotated method fails after programmatic call"
         Provider.withNativeTransaction {
             testService.createProviderWithMixedDeclarativeAndProgrammaticTransactions(
@@ -399,11 +519,14 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "both rolled back (same transaction context)"
         thrown(RuntimeException)
-        Provider.count() == 0
-        AuditEvent.count() == 0
+        Provider.count() == initialProviderCount
+        AuditEvent.count() == initialAuditCount
     }
 
     void "test programmatic transaction calls annotated method with REQUIRES_NEW"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "programmatic transaction calls REQUIRES_NEW annotated method"
         Provider.withNativeTransaction {
             def p1 = new Provider(firstName: "Programmatic", lastName: "Test", age: 92).save(failOnError: true)
@@ -420,12 +543,15 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "programmatic rolled back, annotated method committed"
         thrown(RuntimeException)
-        Provider.count() == 1
+        Provider.count() == initialCount + 1
         Provider.findByFirstName("Independent") != null
         Provider.findByFirstName("Programmatic") == null
     }
 
     void "test programmatic transaction calls annotated method with REQUIRED"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "programmatic transaction calls REQUIRED annotated method"
         Provider.withNativeTransaction {
             def p1 = new Provider(firstName: "Programmatic2", lastName: "Test", age: 94).save(failOnError: true)
@@ -438,10 +564,13 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "both rolled back together"
         thrown(RuntimeException)
-        Provider.count() == 0
+        Provider.count() == initialCount
     }
 
     void "test multiple annotation calls from programmatic transaction"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "programmatic transaction calls multiple annotated methods"
         def results = Provider.withNativeTransaction {
             def p1 = testService.createProviderWithPropagationRequired(firstName: "First", lastName: "Method", age: 96)
@@ -453,13 +582,16 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "REQUIRED rolled back, REQUIRES_NEW committed"
         thrown(RuntimeException)
-        Provider.count() == 1
+        Provider.count() == initialCount + 1
         Provider.findByFirstName("Independent") != null
         Provider.findByFirstName("First") == null
         Provider.findByFirstName("Second") == null
     }
 
     void "test annotation calls programmatic which calls another annotation"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "deeply nested mixed transactions"
         def result = Provider.withNativeTransaction { // Level 1: programmatic
             testService.createProviderWithPropagationRequired(firstName: "L1", lastName: "Test", age: 100) // Level 2: annotation REQUIRED
@@ -473,7 +605,7 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "REQUIRES_NEW survives, others rolled back"
         thrown(RuntimeException)
-        Provider.count() == 1
+        Provider.count() == initialCount + 1
         Provider.findByFirstName("L3") != null
         Provider.findByFirstName("L1") == null
     }
@@ -483,6 +615,9 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
     // ========================================
 
     void "test annotation with validation failure rolls back"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "validation fails"
         testService.createProviderWithPropagationRequired(
             firstName: "", // Invalid: blank not allowed
@@ -492,10 +627,13 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "exception and rollback"
         thrown(Exception)
-        Provider.count() == 0
+        Provider.count() == initialCount
     }
 
     void "test annotation with database constraint violation rolls back"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "creating provider with negative age"
         testService.createProviderWithPropagationRequired(
             firstName: "Invalid",
@@ -505,10 +643,13 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "exception and rollback"
         thrown(Exception)
-        Provider.count() == 0
+        Provider.count() == initialCount
     }
 
     void "test multiple sequential annotated calls - all succeed"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "sequential calls to annotated methods"
         5.times { i ->
             testService.createProviderWithPropagationRequired(
@@ -519,13 +660,16 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
         }
 
         then: "all committed in separate transactions"
-        Provider.count() == 5
+        Provider.count() == initialCount + 5
         (0..4).each { i ->
             assert Provider.findByFirstName("Sequential${i}") != null
         }
     }
 
     void "test annotation with null entity handling"() {
+        given: "initial count"
+        def initialCount = Provider.count()
+
         when: "attempting to save null"
         Provider.withNativeTransaction {
             testService.createProviderWithPropagationRequired([:]) // Missing required fields
@@ -533,6 +677,6 @@ class NativeTransactionalParametersIntegrationSpec extends Specification {
 
         then: "validation exception"
         thrown(Exception)
-        Provider.count() == 0
+        Provider.count() == initialCount
     }
 }

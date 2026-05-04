@@ -76,11 +76,19 @@ class NativeTransactionalAttributeSource implements TransactionAttributeSource, 
      * Builds TransactionAttribute from @NativeTransactional annotation.
      * Sets the qualifier to "nativeTransaction" to mark this transaction
      * as requiring native MongoDB ClientSession handling.
+     *
+     * <p>Rollback behavior matches Spring's @Transactional defaults:
+     * <ul>
+     *   <li>If no rollback rules are specified, uses Spring's default behavior
+     *       (rollback on RuntimeException and Error, commit on checked exceptions)</li>
+     *   <li>If rollbackFor/noRollbackFor are specified, uses only those explicit rules</li>
+     * </ul>
      */
     private TransactionAttribute buildTransactionAttribute(NativeTransactional annotation) {
         RuleBasedTransactionAttribute txAttr = new RuleBasedTransactionAttribute()
         txAttr.setPropagationBehavior(annotation.propagation().value())
         txAttr.setTimeout(annotation.timeout())
+
         List<RollbackRuleAttribute> rollbackRules = new ArrayList<>()
         for (Class<?> rbRule : annotation.rollbackFor()) {
             rollbackRules.add(new RollbackRuleAttribute(rbRule))
@@ -94,7 +102,12 @@ class NativeTransactionalAttributeSource implements TransactionAttributeSource, 
         for (String nrbRuleName : annotation.noRollbackForClassName()) {
             rollbackRules.add(new NoRollbackRuleAttribute(nrbRuleName))
         }
-        txAttr.setRollbackRules(rollbackRules)
+
+        if (!rollbackRules.isEmpty()) {
+            txAttr.setRollbackRules(rollbackRules)
+        }
+        // If rollbackRules is empty, leave it as null to use Spring's default behavior
+
         txAttr.setQualifier(NativeTransactional.NATIVE_TRANSACTION_QUALIFIER)
         return txAttr
     }

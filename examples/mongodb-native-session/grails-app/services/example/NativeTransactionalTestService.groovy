@@ -402,6 +402,71 @@ class NativeTransactionalTestService {
 
         return [provider: provider, audit: audit]
     }
+
+    // ========================================
+    // Default Rollback Behavior Tests (No explicit rollbackFor)
+    // ========================================
+
+    /**
+     * Tests default Spring behavior: should rollback on RuntimeException
+     * even when NO rollbackFor is specified.
+     *
+     * This is the most common use case and should work like standard @Transactional.
+     */
+    @NativeTransactional
+    Provider createProviderWithDefaultRollbackOnRuntimeException(Map data) {
+        def provider = new Provider(data).save(failOnError: true)
+        throw new RuntimeException("Should rollback by default - Spring's standard behavior")
+    }
+
+    /**
+     * Tests default behavior with successful completion (no exception).
+     * Should commit normally.
+     */
+    @NativeTransactional
+    Provider createProviderWithDefaultBehaviorSuccess(Map data) {
+        return new Provider(data).save(failOnError: true)
+    }
+
+    /**
+     * Tests that checked exceptions (IOException) do NOT rollback by default,
+     * matching Spring's standard @Transactional behavior.
+     */
+    @NativeTransactional
+    Provider createProviderWithDefaultBehaviorCheckedException(Map data, boolean shouldFail) throws IOException {
+        def provider = new Provider(data).save(failOnError: true)
+        if (shouldFail) {
+            throw new IOException("Checked exception - should NOT rollback by default")
+        }
+        return provider
+    }
+
+    /**
+     * Tests default behavior with Error (should rollback like RuntimeException).
+     */
+    @NativeTransactional
+    Provider createProviderWithDefaultRollbackOnError(Map data) {
+        def provider = new Provider(data).save(failOnError: true)
+        throw new AssertionError("Error should rollback by default")
+    }
+
+    /**
+     * Tests default behavior with explicit REQUIRED propagation.
+     */
+    @NativeTransactional(propagation = Propagation.REQUIRED)
+    Provider createProviderWithRequiredAndDefaultRollback(Map data) {
+        def provider = new Provider(data).save(failOnError: true)
+        throw new RuntimeException("REQUIRED with default rollback")
+    }
+
+    /**
+     * Tests default behavior with REQUIRES_NEW propagation.
+     */
+    @NativeTransactional(propagation = Propagation.REQUIRES_NEW)
+    Provider createProviderWithRequiresNewAndDefaultRollback(Map data) {
+        def provider = new Provider(data).save(failOnError: true)
+        throw new RuntimeException("REQUIRES_NEW with default rollback")
+    }
 }
 
 // ========================================

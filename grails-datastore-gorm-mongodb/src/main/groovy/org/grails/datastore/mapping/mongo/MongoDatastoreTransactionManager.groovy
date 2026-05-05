@@ -300,7 +300,6 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
 
         // If no session holder exists OR REQUIRES_NEW, create one
         if (!sessionHolder || isRequiresNew) {
-            Session session = getDatastore().connect()
             ClientSession clientSession
 
             if (!isRequiresNew && contextSession != null && contextSession.hasActiveTransaction()) {
@@ -311,8 +310,27 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
                 clientSession = mongoClient.startSession()
             }
 
+            if (!isJoiningExisting) {
+                MongoNativeTransactionContext.pushNativeSession(clientSession)
+                txObject.pushedToContext = true
+            } else {
+                txObject.pushedToContext = false
+            }
+
+            Session session = getDatastore().connect()
             sessionHolder = new MongoSessionHolder(session, clientSession)
             txObject.setMongoSessionHolder(sessionHolder)
+        } else {
+            // Session holder already exists (joining existing transaction)
+            if (!isJoiningExisting) {
+                ClientSession clientSession = txObject.getClientSession()
+                if (clientSession != null) {
+                    MongoNativeTransactionContext.pushNativeSession(clientSession)
+                    txObject.pushedToContext = true
+                }
+            } else {
+                txObject.pushedToContext = false
+            }
         }
 
         final Session session = sessionHolder.getSession()
@@ -320,14 +338,6 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
 
         if (!clientSession) {
             throw new TransactionSystemException("ClientSession not available in transaction object")
-        }
-
-        // Only push to context if not already there (avoid duplicate push when joining programmatic transaction)
-        if (!isJoiningExisting) {
-            MongoNativeTransactionContext.pushNativeSession(clientSession)
-            txObject.pushedToContext = true
-        } else {
-            txObject.pushedToContext = false
         }
 
         final org.grails.datastore.mapping.transactions.Transaction gormTx = session.beginTransaction()

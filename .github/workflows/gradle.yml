@@ -92,6 +92,36 @@ jobs:
           --region us-east-2 \
           --query authorizationToken \
           --output text)
+
+        # Get version from gradle.properties
+        VERSION=$(grep "^projectVersion=" gradle.properties | cut -d'=' -f2)
+
+        echo "======================================"
+        echo "Publishing to CodeArtifact"
+        echo "======================================"
+        echo "Repository: coherehealth-main"
+        echo "Domain: coherehealth-main"
+        echo "Region: us-east-2"
+        echo "Group: com.coherehealth.grails"
+        echo "Version: $VERSION"
+        echo "URL: https://coherehealth-main-${AWS_ACCOUNT_ID}.d.codeartifact.us-east-2.amazonaws.com/maven/coherehealth-main/"
+        echo "======================================"
+        
         ./gradlew publish \
           -PcodeartifactToken=$CODEARTIFACT_AUTH_TOKEN \
           -PawsAccountId=$AWS_ACCOUNT_ID
+
+        echo ""
+        echo "======================================"
+        echo "✅ Published Successfully"
+        echo "======================================"
+        echo "Listing published packages..."
+        aws codeartifact list-packages \
+          --domain coherehealth-main \
+          --domain-owner $AWS_ACCOUNT_ID \
+          --repository coherehealth-main \
+          --region us-east-2 \
+          --format maven \
+          --namespace com.coherehealth.grails \
+          --query 'packages[*].{Package:package,LatestVersion:latestVersion.version}' \
+          --output table

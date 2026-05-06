@@ -38,6 +38,9 @@ test {
     }
 
     jvmArgs = ['-Xmx1028M']
+
+    timeout = Duration.ofMinutes(10)
+
     afterSuite {
         System.out.print('.')
         System.out.flush()

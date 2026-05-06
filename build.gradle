@@ -130,6 +130,7 @@ subprojects { project ->
                 showStandardStreams = true
                 exceptionFormat = 'full'
             }
+            timeout = Duration.ofMinutes(10)
         }
 
         tasks.withType(Jar).configureEach {

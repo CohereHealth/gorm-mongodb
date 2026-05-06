@@ -244,13 +244,14 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
     }
     
     /**
-     * Determines if native transactions should be used based on:
-     * 1. Global native transaction setting
-     * 2. Active native transaction context
+     * Determines if native transactions should be used based on global native transaction setting only.
+     * Note: We do NOT check MongoNativeTransactionContext here because:
+     * - Spring-managed transactions (@Transactional/@NativeTransactional) should be determined by annotation only
+     * - Programmatic transactions (withNativeTransaction) are handled separately and don't go through doBegin()
+     * - Checking hasNativeSession() here would cause regular @Transactional to incorrectly use native transactions
      */
     private boolean shouldUseNativeTransaction() {
-        return ((MongoDatastore) getDatastore()).isNativeTransactionsEnabled() ||
-               MongoNativeTransactionContext.hasNativeSession()
+        return ((MongoDatastore) getDatastore()).isNativeTransactionsEnabled()
     }
     
     /**

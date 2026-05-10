@@ -56,6 +56,11 @@ abstract class AbstractMongoConnectionSourceSettings extends ConnectionSourceSet
     String engine = MongoConstants.CODEC_ENGINE
 
     /**
+     * Whether to enable native MongoDB transactions (requires MongoDB 4.0+ and a replica set)
+     */
+    boolean nativeTransactionsEnabled
+
+    /**
      * Whether to use stateless mode by default
      */
     boolean stateless = false
@@ -66,15 +71,6 @@ abstract class AbstractMongoConnectionSourceSettings extends ConnectionSourceSet
      * @see org.bson.types.Decimal128
      */
     boolean decimalType = true
-
-    /**
-     * Whether native MongoDB transactions are enabled.
-     * When true, GORM operations will use native MongoDB multi-document transactions (requires MongoDB 4.0+ with replica sets).
-     * When false (default), uses traditional GORM transaction management with Spring @Rollback.
-     *
-     * @see MongoNativeTransactionContext
-     */
-    boolean nativeTransactionsEnabled = false
 
     /**
      * The collection name to use to resolve connections when using {@link MongoConnectionSources}

@@ -162,11 +162,12 @@ class MongoNativeCodecSession extends MongoCodecSession {
 
         if (session) {
             collection.deleteOne(session, idQuery)
-            log.trace("Deleted object with ID {} using session", id)
         } else {
             collection.deleteOne(idQuery)
-            log.trace("Deleted object with ID {} without session", id)
         }
+
+        clear(obj)
+        log.debug("Successfully deleted entity: {} with id: {}", entity.name, id)
     }
 
     @Override
@@ -178,16 +179,6 @@ class MongoNativeCodecSession extends MongoCodecSession {
         }
     }
 
-    /**
-     * Executes bulk delete operations with native transaction session support.
-     * 
-     * <p>This method ensures that bulk delete operations are executed within the
-     * active MongoDB transaction session, maintaining ACID properties and proper
-     * isolation levels.</p>
-     *
-     * @param criteria the query criteria for selecting documents to delete
-     * @return the number of documents deleted, or 0 if the operation was not acknowledged
-     */
     @Override
     long deleteAll(QueryableCriteria criteria) {
         final PersistentEntity entity = criteria.getPersistentEntity()

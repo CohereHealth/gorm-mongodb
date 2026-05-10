@@ -68,8 +68,8 @@ trait MongoNativeTransactionSupport<D> {
         def mongoClient = mongoDatastore.mongoClient
         ClientSession clientSession = null
         MongoNativeCodecSession nativeCodecSession = null
-
         boolean createdHolder = false
+
         try {
             clientSession = mongoClient.startSession()
             clientSession.startTransaction()

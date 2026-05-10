@@ -58,13 +58,13 @@ interface MongoSettings extends Settings {
      * The host
      */
     String SETTING_HOST = "grails.mongodb.host"
-    /**
+/**
      * The port
      */
     String SETTING_PORT = "grails.mongodb.port"
     /**
      * The username
-     */
+ */
     String SETTING_USERNAME = "grails.mongodb.username"
     /**
      * The password

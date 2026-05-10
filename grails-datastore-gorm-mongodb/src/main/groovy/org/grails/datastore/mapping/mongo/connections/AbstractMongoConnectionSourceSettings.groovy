@@ -68,6 +68,15 @@ abstract class AbstractMongoConnectionSourceSettings extends ConnectionSourceSet
     boolean decimalType = true
 
     /**
+     * Whether native MongoDB transactions are enabled.
+     * When true, GORM operations will use native MongoDB multi-document transactions (requires MongoDB 4.0+ with replica sets).
+     * When false (default), uses traditional GORM transaction management with Spring @Rollback.
+     *
+     * @see MongoNativeTransactionContext
+     */
+    boolean nativeTransactionsEnabled = false
+
+    /**
      * The collection name to use to resolve connections when using {@link MongoConnectionSources}
      */
     String connectionsCollection = "mongo.connections"

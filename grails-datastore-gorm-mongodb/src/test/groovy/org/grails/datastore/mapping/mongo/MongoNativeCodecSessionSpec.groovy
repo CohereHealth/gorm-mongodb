@@ -253,6 +253,7 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
         when:
         Person.withNativeTransaction {
             new Pet(name: "Fluffy", owner: person).save()
+        }
 
         then:
         Pet.findByName("Fluffy").owner.id == person.id

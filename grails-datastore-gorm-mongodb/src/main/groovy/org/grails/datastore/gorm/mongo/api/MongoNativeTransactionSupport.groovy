@@ -127,7 +127,6 @@ trait MongoNativeTransactionSupport<D> {
                     outerSession.flush()  // Persist pending changes before clearing
                     outerSession.clear()  // Then invalidate cache to prevent stale reads
                 }
-                nativeCodecSession.clear()
             }
             clientSession?.close()
         }

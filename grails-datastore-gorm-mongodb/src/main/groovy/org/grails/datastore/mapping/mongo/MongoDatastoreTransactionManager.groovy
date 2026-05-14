@@ -109,7 +109,26 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
             validateNativePropagationLevel(definition)
             doBeginNative(transaction, definition)
         } else {
-            doBeginRegular(transaction, definition)
+            // For regular transactions: create session, then delegate to parent's proven implementation
+            MongoTransactionObject mongoTxObj = (MongoTransactionObject) transaction
+            MongoSessionHolder sessionHolder = mongoTxObj.getMongoSessionHolder()
+
+            // Check if resource already exists BEFORE creating new binding
+            boolean resourceAlreadyBound = TransactionSynchronizationManager.hasResource(getDatastore())
+
+            // Create session if it doesn't exist
+            if (!sessionHolder) {
+                Session session = getDatastore().connect()
+                sessionHolder = new MongoSessionHolder(session, null)  // null ClientSession = regular transaction
+                mongoTxObj.setMongoSessionHolder(sessionHolder)
+            }
+
+            // Set boundResource flag - adapter uses this to determine newSessionHolder
+            // Parent's doBegin will bind the resource if isNewSessionHolder() is true
+            mongoTxObj.boundResource = !resourceAlreadyBound
+
+            // Adapt to parent-compatible transaction object and delegate
+            super.doBegin(createParentCompatibleTransactionObject(mongoTxObj), definition)
         }
     }
 
@@ -403,35 +422,6 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
             log.debug("Transaction timeout of ${timeoutSeconds}s will be enforced by Spring transaction manager")
         }
         return builder.build()
-    }
-
-    /**
-     * Begin regular (non-native) transaction.
-     */
-    private void doBeginRegular(Object transaction, TransactionDefinition definition) {
-        final MongoTransactionObject txObject = extractMongoTransactionObject(transaction)
-        MongoSessionHolder sessionHolder = txObject.getMongoSessionHolder()
-
-        // If no session holder exists, create one (session with no ClientSession)
-        if (!sessionHolder) {
-            Session session = getDatastore().connect()
-            sessionHolder = new MongoSessionHolder(session, null)  // null ClientSession = regular transaction
-            txObject.setMongoSessionHolder(sessionHolder)
-        }
-
-        final Session session = sessionHolder.getSession()
-
-        final org.grails.datastore.mapping.transactions.Transaction gormTx = session.beginTransaction()
-        sessionHolder.setTransaction(gormTx)
-
-        if (!TransactionSynchronizationManager.hasResource(getDatastore())) {
-            TransactionSynchronizationManager.bindResource(getDatastore(), sessionHolder)
-            txObject.boundResource = true
-        } else {
-            txObject.boundResource = false
-        }
-
-        sessionHolder.setSynchronizedWithTransaction(true)
     }
 
     /**

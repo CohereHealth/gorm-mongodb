@@ -26,6 +26,8 @@ class MongoTransactionObject implements Transaction<ClientSession> {
     public boolean boundResource = false
     // For REQUIRES_NEW: stores the suspended programmatic transaction session
     public ClientSession suspendedContextSession = null
+    // Cached adapted TransactionObject for super method delegation
+    public Object cachedAdaptedTransactionObject = null
 
     MongoTransactionObject(MongoSessionHolder mongoSessionHolder) {
         this.mongoSessionHolder = mongoSessionHolder

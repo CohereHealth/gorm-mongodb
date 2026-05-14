@@ -148,16 +148,20 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
         if (isNativeTransaction(status)) {
             doCommitNative(status)
         } else {
-            doCommitRegular(status)
+            MongoTransactionObject mongoTxObj = (MongoTransactionObject) status.transaction
+            DefaultTransactionStatus adaptedStatus = createParentCompatibleTransactionStatus(mongoTxObj, status)
+            super.doCommit(adaptedStatus)
         }
     }
-    
+
     @Override
     protected void doRollback(DefaultTransactionStatus status) throws TransactionException {
         if (isNativeTransaction(status)) {
             doRollbackNative(status)
         } else {
-            doRollbackRegular(status)
+            MongoTransactionObject mongoTxObj = (MongoTransactionObject) status.transaction
+            DefaultTransactionStatus adaptedStatus = createParentCompatibleTransactionStatus(mongoTxObj, status)
+            super.doRollback(adaptedStatus)
         }
     }
     
@@ -258,7 +262,9 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
         if (hasNativeSession(transaction)) {
             doCleanupNative((MongoTransactionObject) transaction)
         } else {
-            doCleanupRegular((MongoTransactionObject) transaction)
+            MongoTransactionObject mongoTxObj = (MongoTransactionObject) transaction
+            Object adaptedTransaction = createParentCompatibleTransactionObject(mongoTxObj)
+            super.doCleanupAfterCompletion(adaptedTransaction)
         }
     }
     
@@ -415,7 +421,6 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
 
         final Session session = sessionHolder.getSession()
 
-        // Start regular GORM transaction (not native MongoDB transaction)
         final org.grails.datastore.mapping.transactions.Transaction gormTx = session.beginTransaction()
         sessionHolder.setTransaction(gormTx)
 
@@ -425,6 +430,8 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
         } else {
             txObject.boundResource = false
         }
+
+        sessionHolder.setSynchronizedWithTransaction(true)
     }
 
     /**
@@ -452,28 +459,6 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
     }
 
     /**
-     * Commit regular (non-native) transaction
-     */
-    private void doCommitRegular(DefaultTransactionStatus status) {
-        final MongoTransactionObject txObject = extractMongoTransactionObject(status.transaction)
-        Transaction tx = txObject.mongoSessionHolder?.transaction
-        if (tx) {
-            tx.commit()
-        }
-    }
-
-    /**
-     * Rollback regular (non-native) transaction
-     */
-    private void doRollbackRegular(DefaultTransactionStatus status) {
-        final MongoTransactionObject txObject = extractMongoTransactionObject(status.transaction)
-        Transaction tx = txObject.mongoSessionHolder?.transaction
-        if (tx) {
-            tx.rollback()
-        }
-    }
-
-    /**
      * Cleanup native transaction resources
      */
     private void doCleanupNative(MongoTransactionObject transaction) {
@@ -495,16 +480,6 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
         // For REQUIRES_NEW: resume the suspended programmatic transaction
         if (transaction.suspendedContextSession != null) {
             MongoNativeTransactionContext.pushNativeSession(transaction.suspendedContextSession)
-        }
-    }
-
-    /**
-     * Cleanup regular transaction resources
-     */
-    private void doCleanupRegular(MongoTransactionObject transaction) {
-        // Only unbind if we bound the resource
-        if (transaction.boundResource) {
-            TransactionSynchronizationManager.unbindResourceIfPossible(getDatastore())
         }
     }
 
@@ -537,6 +512,45 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
             throw new IllegalStateException("No MongoClient specified");
         }
         return mongoClient;
+    }
+
+    private Object createParentCompatibleTransactionObject(MongoTransactionObject mongoTxObj) {
+        if (mongoTxObj == null || mongoTxObj.mongoSessionHolder == null) {
+            return new org.grails.datastore.mapping.transactions.TransactionObject()
+        }
+
+        if (mongoTxObj.cachedAdaptedTransactionObject != null) {
+            return mongoTxObj.cachedAdaptedTransactionObject
+        }
+
+        org.grails.datastore.mapping.transactions.TransactionObject parentTxObj =
+            new org.grails.datastore.mapping.transactions.TransactionObject()
+
+        if (mongoTxObj.boundResource) {
+            parentTxObj.setSession(mongoTxObj.mongoSessionHolder.getSession())
+        } else {
+            parentTxObj.setExistingSession(mongoTxObj.mongoSessionHolder.getSession())
+        }
+        parentTxObj.setSessionHolder(mongoTxObj.mongoSessionHolder)
+
+        // Cache this adapted object for reuse in subsequent calls (commit, rollback, cleanup)
+        mongoTxObj.cachedAdaptedTransactionObject = parentTxObj
+
+        return parentTxObj
+    }
+
+    private DefaultTransactionStatus createParentCompatibleTransactionStatus(
+            MongoTransactionObject mongoTxObj,
+            DefaultTransactionStatus originalStatus) {
+        Object parentCompatibleTxObj = createParentCompatibleTransactionObject(mongoTxObj)
+        return new DefaultTransactionStatus(
+            parentCompatibleTxObj,
+            originalStatus.isNewTransaction(),
+            originalStatus.isNewSynchronization(),
+            originalStatus.isReadOnly(),
+            originalStatus.isDebug(),
+            originalStatus.getSuspendedResources()
+        )
     }
 
 }

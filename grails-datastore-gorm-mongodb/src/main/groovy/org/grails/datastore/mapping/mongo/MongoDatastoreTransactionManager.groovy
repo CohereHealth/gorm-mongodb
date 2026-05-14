@@ -68,15 +68,23 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
 
         if (existingResource instanceof MongoSessionHolder) {
             MongoSessionHolder holder = (MongoSessionHolder) existingResource
-            // Check if the session is actually active - could be a stale session from a previous transaction
             ClientSession session = holder.getClientSession()
-            if (session != null && session.hasActiveTransaction()) {
-                // Valid active session - use it
-                return new MongoTransactionObject(holder)
-            } else {
-                // Stale session without active transaction - unbind it and treat as new transaction
-                TransactionSynchronizationManager.unbindResource(getDatastore())
-                return new MongoTransactionObject(null)
+            if (session != null) { // Native transaction
+                if (session.hasActiveTransaction()) {
+                    return new MongoTransactionObject(holder)
+                } else {
+                    // Stale native session
+                    TransactionSynchronizationManager.unbindResource(getDatastore())
+                    return new MongoTransactionObject(null)
+                }
+            } else { // Regular GORM transaction (no ClientSession)
+                if (holder.getTransaction() != null) {
+                    return new MongoTransactionObject(holder)
+                } else {
+                    // Stale regular session
+                    TransactionSynchronizationManager.unbindResource(getDatastore())
+                    return new MongoTransactionObject(null)
+                }
             }
         }
 
@@ -90,7 +98,6 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
         }
 
         // No existing resource - return an empty MongoTransactionObject
-        // Determine in doBegin() whether to use native or regular transactions
         return new MongoTransactionObject(null)
     }
 
@@ -157,18 +164,30 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
     @Override
     protected boolean isExistingTransaction(Object transaction) {
         if (transaction instanceof MongoTransactionObject) {
-            ClientSession session = ((MongoTransactionObject) transaction).getClientSession()
-            boolean hasActive = session != null && session.hasActiveTransaction()
+            MongoTransactionObject txObject = (MongoTransactionObject) transaction
 
-            // If no session in transaction object, check context for programmatic transaction
-            if (!hasActive && MongoNativeTransactionContext.hasNativeSession()) {
-                ClientSession contextSession = MongoNativeTransactionContext.getNativeSession()
-                boolean contextHasActive = contextSession != null && contextSession.hasActiveTransaction()
-                boolean hasSpringTransaction = TransactionSynchronizationManager.hasResource(getDatastore())
-                hasActive = contextHasActive && hasSpringTransaction
+            // Check for active native transaction (ClientSession)
+            ClientSession session = txObject.getClientSession()
+            if (session != null && session.hasActiveTransaction()) {
+                return true
             }
 
-            return hasActive
+            // Check for programmatic native transaction in context
+            if (MongoNativeTransactionContext.hasNativeSession()) {
+                ClientSession contextSession = MongoNativeTransactionContext.getNativeSession()
+                if (contextSession != null && contextSession.hasActiveTransaction() &&
+                    TransactionSynchronizationManager.hasResource(getDatastore())) {
+                    return true
+                }
+            }
+
+            // Check for regular GORM transaction (SessionHolder)
+            MongoSessionHolder holder = txObject.getMongoSessionHolder()
+            if (holder != null && holder.getTransaction() != null) {
+                return true
+            }
+
+            return false
         }
         return super.isExistingTransaction(transaction)
     }

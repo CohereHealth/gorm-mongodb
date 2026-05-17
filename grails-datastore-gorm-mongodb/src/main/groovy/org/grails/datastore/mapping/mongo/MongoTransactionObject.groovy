@@ -19,8 +19,17 @@ class MongoTransactionObject implements Transaction<ClientSession> {
     private boolean rollbackOnly = false
     private final boolean isNested = false
 
+    // Annotation support: track transaction ownership for cleanup
+    boolean pushedToContext = false  // Did we push ClientSession to thread-local context?
+    boolean boundResource = false     // Did we bind SessionHolder to Spring?
+    ClientSession suspendedContextSession = null  // For REQUIRES_NEW: suspended outer session
+
     MongoTransactionObject(MongoSessionHolder mongoSessionHolder) {
         this.mongoSessionHolder = mongoSessionHolder
+    }
+
+    void setMongoSessionHolder(MongoSessionHolder holder) {
+        this.mongoSessionHolder = holder
     }
 
     @Nullable
@@ -45,6 +54,7 @@ class MongoTransactionObject implements Transaction<ClientSession> {
     
     @Override
     void commit() throws TransactionException {
+        log.debug("MongoTransactionObject.commit() called: active={}, rollbackOnly={}", active, rollbackOnly)
         if (!active) {
             log.warn("Attempted to commit inactive transaction")
             throw new NoTransactionException("Transaction is not active")
@@ -126,6 +136,7 @@ class MongoTransactionObject implements Transaction<ClientSession> {
     }
     
     void setRollbackOnly() {
+        log.debug("Setting rollbackOnly=true on MongoTransactionObject")
         rollbackOnly = true
     }
 

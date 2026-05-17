@@ -28,7 +28,12 @@ import org.grails.datastore.gorm.support.AbstractDatastorePersistenceContextInte
 import org.grails.datastore.gorm.support.DatastorePersistenceContextInterceptor
 import org.grails.datastore.mapping.config.DatastoreServiceMethodInvokingFactoryBean
 import org.grails.datastore.mapping.mongo.MongoDatastore
+import org.grails.datastore.mapping.mongo.NativeTransactionalAttributeSource
 import org.grails.datastore.mapping.mongo.connections.MongoConnectionSourceFactory
+import org.springframework.beans.factory.config.BeanDefinition
+import org.springframework.core.Ordered
+import org.springframework.transaction.interceptor.BeanFactoryTransactionAttributeSourceAdvisor
+import org.springframework.transaction.interceptor.TransactionInterceptor
 import org.springframework.beans.factory.support.BeanDefinitionRegistry
 import org.springframework.context.ApplicationContext
 import org.springframework.context.ApplicationEventPublisher
@@ -118,6 +123,24 @@ class MongoDbDataStoreSpringInitializer extends AbstractDatastoreInitializer {
             mongoAutoTimestampEventListener(mongoDatastore:"getAutoTimestampEventListener")
             mongoPersistenceInterceptor(getPersistenceInterceptorClass(), ref("mongoDatastore"))
             mongoPersistenceContextInterceptorAggregator(PersistenceContextInterceptorAggregator)
+
+            // Register @NativeTransactional annotation support (beans registered directly to avoid
+            // premature initialization caused by @Configuration processing via ConfigurationClassPostProcessor)
+            nativeTransactionalAttributeSource(NativeTransactionalAttributeSource) { bean ->
+                bean.role = BeanDefinition.ROLE_INFRASTRUCTURE
+            }
+            nativeTransactionInterceptor(TransactionInterceptor) { bean ->
+                bean.role = BeanDefinition.ROLE_INFRASTRUCTURE
+                transactionManager = ref('mongoTransactionManager')
+                transactionAttributeSource = ref('nativeTransactionalAttributeSource')
+                transactionManagerBeanName = ""
+            }
+            nativeTransactionAdvisor(BeanFactoryTransactionAttributeSourceAdvisor) { bean ->
+                bean.role = BeanDefinition.ROLE_INFRASTRUCTURE
+                advice = ref('nativeTransactionInterceptor')
+                transactionAttributeSource = ref('nativeTransactionalAttributeSource')
+                order = Ordered.LOWEST_PRECEDENCE - 1
+            }
             def transactionManagerBeanName = TRANSACTION_MANAGER_BEAN
             if (!containsRegisteredBean(delegate, beanDefinitionRegistry, transactionManagerBeanName)) {
                 beanDefinitionRegistry.registerAlias("mongoTransactionManager", transactionManagerBeanName)

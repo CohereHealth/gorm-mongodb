@@ -23,6 +23,7 @@ import java.math.BigInteger;
 import java.util.*;
 import java.util.regex.Pattern;
 
+
 import org.bson.Document;
 import org.bson.codecs.Codec;
 import org.bson.codecs.configuration.CodecConfigurationException;
@@ -184,6 +185,30 @@ public class MongoMappingContext extends DocumentMappingContext {
         else {
             this.codecRegistry = CodecRegistries.fromCodecs(codecs);
         }
+    }
+
+    /**
+     * Override to detect and fix stale reflectors.
+     *
+     * <p>During {@code addPersistentEntities}, entity instances can be replaced in the mapping
+     * context (e.g., when association discovery triggers early initialization of an entity that
+     * is later re-registered with a more complete property set). The static reflector cache in
+     * {@link org.grails.datastore.mapping.reflect.FieldEntityAccess} is keyed by entity name
+     * and never invalidates entries when the underlying entity instance changes.</p>
+     *
+     * <p>This override detects when the cached reflector was built from a different entity
+     * instance than the one currently passed (stale cache) and forces a rebuild.</p>
+     */
+    @Override
+    public org.grails.datastore.mapping.reflect.EntityReflector getEntityReflector(PersistentEntity entity) {
+        org.grails.datastore.mapping.reflect.EntityReflector reflector = super.getEntityReflector(entity);
+        if (reflector != null && reflector.getPersitentEntity() != entity) {
+            // The cached reflector was built from a different (stale) entity instance.
+            // Clear the cache and rebuild from the current entity.
+            org.grails.datastore.mapping.reflect.FieldEntityAccess.clearReflectors();
+            reflector = super.getEntityReflector(entity);
+        }
+        return reflector;
     }
 
     private void initialize(Class[] classes) {

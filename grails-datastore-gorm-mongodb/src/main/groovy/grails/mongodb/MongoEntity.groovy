@@ -28,6 +28,7 @@ import org.bson.conversions.Bson
 import org.grails.datastore.gorm.GormEnhancer
 import org.grails.datastore.gorm.GormEntity
 import org.grails.datastore.gorm.mongo.MongoCriteriaBuilder
+import org.grails.datastore.gorm.mongo.api.MongoNativeStaticApi
 import org.grails.datastore.gorm.mongo.api.MongoStaticApi
 import org.grails.datastore.gorm.schemaless.DynamicAttributes
 import org.grails.datastore.mapping.core.AbstractDatastore
@@ -247,6 +248,18 @@ trait MongoEntity<D> implements GormEntity<D>, DynamicAttributes {
         currentMongoStaticApi().aggregate(pipeline, doWithAggregate, readPreference)
     }
 
+    static <T> List<T> aggregate(List pipeline, Class<T> resultType) {
+        currentMongoStaticApi().aggregate(pipeline, resultType)
+    }
+
+    static <T> List<T> aggregate(List pipeline, Class<T> resultType, Function<AggregateIterable, AggregateIterable> doWithAggregate) {
+        currentMongoStaticApi().aggregate(pipeline, resultType, doWithAggregate)
+    }
+
+    static <T> List<T> aggregate(List pipeline, Class<T> resultType, Function<AggregateIterable, AggregateIterable> doWithAggregate, ReadPreference readPreference) {
+        currentMongoStaticApi().aggregate(pipeline, resultType, doWithAggregate, readPreference)
+    }
+
     /**
      * Search for entities using the given query
      *
@@ -281,6 +294,14 @@ trait MongoEntity<D> implements GormEntity<D>, DynamicAttributes {
             callable.setDelegate(staticApi)
             return callable.call()
         }
+    }
+
+    static <T> T withNativeTransaction(Closure<T> callable) {
+        (T) (((MongoNativeStaticApi) currentGormStaticApi()).withNativeTransaction callable)
+    }
+
+    static <T> T withNewNativeTransaction(Closure<T> callable) {
+        (T) (((MongoNativeStaticApi) currentGormStaticApi()).withNewNativeTransaction callable)
     }
 
     private static MongoStaticApi currentMongoStaticApi() {

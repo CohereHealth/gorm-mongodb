@@ -45,6 +45,9 @@ include 'grails-plugin'
 include 'examples-grails3-mongodb'
 project(":examples-grails3-mongodb").projectDir = new File(settingsDir, "examples/grails3-mongodb")
 
+include 'examples-mongodb-native-session'
+project(":examples-mongodb-native-session").projectDir = new File(settingsDir, "examples/mongodb-native-session")
+
 include 'examples-grails3-mongodb-database-per-tenant'
 project(":examples-grails3-mongodb-database-per-tenant").projectDir = new File(settingsDir, "examples/grails3-mongodb-database-per-tenant")
 

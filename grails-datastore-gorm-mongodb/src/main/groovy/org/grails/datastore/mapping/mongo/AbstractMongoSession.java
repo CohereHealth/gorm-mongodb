@@ -20,7 +20,6 @@ import org.bson.Document;
 import org.grails.datastore.mapping.core.AbstractSession;
 import org.grails.datastore.mapping.core.impl.PendingOperation;
 import org.grails.datastore.mapping.document.config.DocumentMappingContext;
-import org.grails.datastore.mapping.engine.EntityAccess;
 import org.grails.datastore.mapping.model.MappingContext;
 import org.grails.datastore.mapping.model.PersistentEntity;
 import org.grails.datastore.mapping.mongo.config.MongoCollection;
@@ -45,9 +44,9 @@ public abstract class AbstractMongoSession extends AbstractSession<MongoClient> 
     protected final String defaultDatabase;
     protected MongoDatastore mongoDatastore;
     protected WriteConcern writeConcern = null;
-    protected boolean errorOccured = false;
-    protected Map<PersistentEntity, String> mongoCollections = new ConcurrentHashMap<PersistentEntity, String>();
-    protected Map<PersistentEntity, String> mongoDatabases = new ConcurrentHashMap<PersistentEntity, String>();
+    protected boolean errorOccurred = false;
+    protected Map<PersistentEntity, String> mongoCollections = new ConcurrentHashMap<>();
+    protected Map<PersistentEntity, String> mongoDatabases = new ConcurrentHashMap<>();
 
     public AbstractMongoSession(MongoDatastore datastore, MappingContext mappingContext, ApplicationEventPublisher publisher) {
         this(datastore, mappingContext, publisher, false);
@@ -59,8 +58,9 @@ public abstract class AbstractMongoSession extends AbstractSession<MongoClient> 
     }
 
     @Override
-    public boolean hasTransaction() {
+    public boolean  hasTransaction() {
         // the session is the transaction, since MongoDB doesn't support them directly
+        // Also check for native MongoDB transactions (MongoDB 4.0+)
         return true;
     }
 

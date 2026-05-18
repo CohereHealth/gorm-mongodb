@@ -103,3 +103,31 @@ grails.mongodb.default.mapping = {
 ----
 
 The `*` method is used to indicate that the setting applies to all properties.
+
+==== Bulk Operations Configuration
+
+GORM for MongoDB uses bulk write operations to optimize database performance when flushing multiple changes. You can configure the batch size for bulk operations:
+
+[source,groovy]
+----
+grails {
+    mongodb {
+        bulkBatchSize = 1000 // Default batch size for bulk operations
+    }
+}
+----
+
+Bulk operations automatically group insert, update, and delete operations by entity type and execute them in batches. This provides significant performance improvements when processing large numbers of entities.
+
+**Key Features:**
+
+* **Automatic Batching**: Operations are automatically grouped and executed in configurable batch sizes
+* **Transaction Support**: Bulk operations work seamlessly with MongoDB native transactions
+* **Optimistic Locking**: Version-based conflict detection is maintained across bulk operations
+* **Memory Efficient**: Large datasets are processed in chunks to prevent memory issues
+
+**Performance Considerations:**
+
+* Smaller batch sizes (100-500) may be better for systems with limited memory
+* Larger batch sizes (1000-5000) provide better throughput for high-volume operations
+* The default batch size of 1000 provides a good balance for most applications

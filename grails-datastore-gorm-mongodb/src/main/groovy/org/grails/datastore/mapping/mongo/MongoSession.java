@@ -197,7 +197,7 @@ public class MongoSession extends AbstractMongoSession {
                             .bulkWrite(writes);
 
                     if( !bulkWriteResult.wasAcknowledged() ) {
-                        errorOccured = true;
+                        errorOccurred = true;
                         throw new DataIntegrityViolationException("Write operation was not acknowledged");
                     }
                     else {

@@ -44,6 +44,11 @@ include::gettingStarted/withHibernate.adoc[]
 
 include::gettingStarted/advancedConfig.adoc[]
 
+[[bulkOperations]]
+=== Bulk Operations
+
+include::bulkOperations.adoc[]
+
 [[springBoot]]
 === Using GORM in Spring Boot
 

@@ -19,14 +19,16 @@ buildscript {
 
 logger.lifecycle "GORM VERSION = ${project.datastoreVersion}"
 
-group "org.grails"
+group "com.coherehealth.grails"
 version project.projectVersion
 
 ext {
     hibernatePluginVersion = project.hibernatePluginVersion
     isCiBuild = project.hasProperty("isCiBuild") || System.getenv().get("CI") as Boolean
     isBuildSnapshot = project.version.endsWith("-SNAPSHOT")
-    isReleaseVersion = !isBuildSnapshot
+    isCohereBuild = project.version.contains("-Cohere-")
+    // Only apply Sonatype publishing for non-Cohere release versions
+    isReleaseVersion = !isBuildSnapshot && !isCohereBuild
     servletApiVersion = "4.0.1"
     nexusUsername = System.getenv("SONATYPE_USERNAME") ?: project.hasProperty("sonatypeOssUsername") ? project.sonatypeOssUsername : ''
     nexusPassword = System.getenv("SONATYPE_PASSWORD") ?: project.hasProperty("sonatypeOssPassword") ? project.sonatypeOssPassword : ''
@@ -185,10 +187,10 @@ subprojects { project ->
     apply plugin: 'groovy'
 
     if (isPluginProject) {
-        group "org.grails.plugins"
+        group "com.coherehealth.grails.plugins"
         version(rootProject.version)
     } else {
-        group "org.grails"
+        group "com.coherehealth.grails"
         version rootProject.version
     }
 
@@ -268,19 +270,31 @@ subprojects { project ->
 
     publishing {
 
-        if (isBuildSnapshot) {
+        if (isBuildSnapshot || isCohereBuild) {
             repositories {
-                maven {
-                    credentials {
-                        def u = System.getenv("ARTIFACTORY_USERNAME") ?: project.hasProperty("artifactoryPublishUsername") ? project.artifactoryPublishUsername : ''
-                        def p = System.getenv("ARTIFACTORY_PASSWORD") ?: project.hasProperty("artifactoryPublishPassword") ? project.artifactoryPublishPassword : ''
-                        username = u
-                        password = p
+                // CodeArtifact publishing for Cohere
+                if (project.hasProperty("codeartifactToken")) {
+                    maven {
+                        url "https://coherehealth-main-${project.property('awsAccountId')}.d.codeartifact.us-east-2.amazonaws.com/maven/coherehealth-main/"
+                        credentials {
+                            username "aws"
+                            password project.property("codeartifactToken")
+                        }
                     }
-                    if (isGrails3PluginProject) {
-                        url "https://repo.grails.org/grails/plugins3-snapshots-local"
-                    } else {
-                        url "https://repo.grails.org/grails/libs-snapshots-local"
+                } else {
+                    // Default Artifactory publishing
+                    maven {
+                        credentials {
+                            def u = System.getenv("ARTIFACTORY_USERNAME") ?: project.hasProperty("artifactoryPublishUsername") ? project.artifactoryPublishUsername : ''
+                            def p = System.getenv("ARTIFACTORY_PASSWORD") ?: project.hasProperty("artifactoryPublishPassword") ? project.artifactoryPublishPassword : ''
+                            username = u
+                            password = p
+                        }
+                        if (isGrails3PluginProject) {
+                            url "https://repo.grails.org/grails/plugins3-snapshots-local"
+                        } else {
+                            url "https://repo.grails.org/grails/libs-snapshots-local"
+                        }
                     }
                 }
             }

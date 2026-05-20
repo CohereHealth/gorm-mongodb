@@ -35,7 +35,7 @@ class MongoNativeTransactionAopConfiguration {
      * Creates the custom TransactionAttributeSource that detects @NativeTransactional annotations
      * and marks them with the "nativeTransaction" qualifier.
      */
-    @Bean
+    @Bean(name = "nativeTransactionalAttributeSource")
     @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
     NativeTransactionalAttributeSource nativeTransactionalAttributeSource() {
         return new NativeTransactionalAttributeSource()
@@ -50,7 +50,7 @@ class MongoNativeTransactionAopConfiguration {
      * by MongoDatastoreTransactionManager.isNativeTransactionalDefinition() to detect
      * @NativeTransactional annotations, not for bean resolution.
      */
-    @Bean
+    @Bean(name = "nativeTransactionInterceptor")
     @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
     TransactionInterceptor nativeTransactionInterceptor(
             PlatformTransactionManager transactionManager,
@@ -69,7 +69,7 @@ class MongoNativeTransactionAopConfiguration {
      * Creates the advisor that integrates the transaction interceptor into Spring AOP.
      * This advisor will cause Spring to create proxies around beans with @NativeTransactional methods.
      */
-    @Bean
+    @Bean(name = "nativeTransactionAdvisor")
     @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
     BeanFactoryTransactionAttributeSourceAdvisor nativeTransactionAdvisor(
             TransactionInterceptor nativeTransactionInterceptor,
@@ -80,9 +80,10 @@ class MongoNativeTransactionAopConfiguration {
         advisor.setAdvice(nativeTransactionInterceptor)
         advisor.setTransactionAttributeSource(attributeSource)
 
-        // Higher priority than default @Transactional advisor
-        // This ensures @NativeTransactional is detected before @Transactional
-        advisor.setOrder(Ordered.LOWEST_PRECEDENCE - 1)
+        // Highest priority to ensure @NativeTransactional is detected before any other
+        // transaction advisors. In Spring, LOWER values = HIGHER priority.
+        // Use Ordered.HIGHEST_PRECEDENCE to ensure this runs first.
+        advisor.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE)
 
         return advisor
     }

@@ -9,12 +9,17 @@ import java.lang.annotation.*;
  *
  * <p>Similar to Spring's {@link Transactional @Transactional}, but specifically
  * uses MongoDB ClientSession with multi-document ACID transactions.</p>
+ *
+ * <p>Uses @Transactional as a meta-annotation to ensure Spring creates transaction proxies.
+ * A custom TransactionAttributeSource (NativeTransactionalAttributeSource) with higher
+ * priority intercepts these annotations and returns NativeTransactionAttribute instances
+ * to enable native MongoDB transaction handling.</p>
  */
 @Target({ElementType.TYPE, ElementType.METHOD})
 @Retention(RetentionPolicy.RUNTIME)
 @Inherited
 @Documented
-@Transactional  // Meta-annotation - makes this recognized by Spring
+@Transactional  // Meta-annotation - ensures Spring creates transaction proxies
 public @interface NativeTransactional {
 
     /**

@@ -147,7 +147,7 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
         if (isNativeTransaction(status)) {
             doCommitNative(status)
         } else {
-            super.doCommit(status)
+            doCommitRegular(status)
         }
     }
     
@@ -159,7 +159,7 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
         if (isNativeTransaction(status)) {
             doRollbackNative(status)
         } else {
-            super.doRollback(status)
+            doRollbackRegular(status)
         }
     }
     
@@ -204,10 +204,11 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
 
     @Override
     protected void doCleanupAfterCompletion(Object transaction) {
+        final MongoTransactionObject txObject = extractMongoTransactionObject(transaction)
         if (hasNativeSession(transaction)) {
-            doCleanupNative((MongoTransactionObject) transaction)
+            doCleanupNative(txObject)
         } else {
-            super.doCleanupAfterCompletion(transaction)
+            doCleanupRegular(txObject)
         }
     }
     

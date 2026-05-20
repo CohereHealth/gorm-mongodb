@@ -18,13 +18,6 @@ import java.lang.annotation.*;
 public @interface NativeTransactional {
 
     /**
-     * Qualifier constant used to identify native MongoDB transactions.
-     * This qualifier is used internally by the transaction manager to distinguish
-     * native transactions from regular Spring transactions.
-     */
-    String NATIVE_TRANSACTION_QUALIFIER = "nativeTransaction";
-
-    /**
      * Transaction propagation behavior.
      * <p>Default is {@link Propagation#REQUIRED}.</p>
      */

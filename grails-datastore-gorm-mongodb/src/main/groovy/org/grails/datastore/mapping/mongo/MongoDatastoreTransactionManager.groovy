@@ -128,23 +128,32 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
 
     /**
      * Checks if the transaction definition indicates @NativeTransactional annotation was used.
-     * Uses instanceof check on custom NativeTransactionAttribute class instead of qualifier
-     * to avoid interfering with Spring's transaction manager bean resolution.
+     *
+     * Note: Spring's TransactionInterceptor wraps our NativeTransactionAttribute in a
+     * DelegatingTransactionAttribute (TransactionAspectSupport$1) that delegates to the original.
+     * The instanceof check on the wrapper won't work. Instead, we use labels
+     * which DelegatingTransactionAttribute delegates to the wrapped attribute.
      */
     private boolean isNativeTransactionalDefinition(TransactionDefinition definition) {
-        boolean isNative = definition instanceof NativeTransactionAttribute
-        if (log.isDebugEnabled() && isNative) {
-            log.debug("Detected @NativeTransactional via NativeTransactionAttribute marker")
+        // Direct check (works when called directly, not through TransactionInterceptor)
+        if (definition instanceof NativeTransactionAttribute) {
+            return true
         }
-        return isNative
+        // Check labels - DelegatingTransactionAttribute delegates getLabels() to the wrapped attribute
+        if (definition instanceof TransactionAttribute) {
+            Collection<String> labels = ((TransactionAttribute) definition).getLabels()
+            if (labels != null && labels.contains(NativeTransactionAttribute.NATIVE_TX_NAME_PREFIX)) {
+                return true
+            }
+        }
+        return false
     }
     
     @Override
     protected void doCommit(DefaultTransactionStatus status) throws TransactionException {
-        if (log.isDebugEnabled()) {
-            log.debug("doCommit: isNative={}", isNativeTransaction(status))
-        }
-        if (isNativeTransaction(status)) {
+        boolean isNative = isNativeTransaction(status)
+        MongoTransactionObject txObj = extractMongoTransactionObject(status.transaction)
+        if (isNative) {
             doCommitNative(status)
         } else {
             doCommitRegular(status)
@@ -167,16 +176,19 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
     protected boolean isExistingTransaction(Object transaction) {
         if (transaction instanceof MongoTransactionObject) {
             ClientSession session = ((MongoTransactionObject) transaction).getClientSession()
-            return session != null && session.hasActiveTransaction()
+            boolean existing = session != null && session.hasActiveTransaction()
+            return existing
         }
-        return super.isExistingTransaction(transaction)
+        boolean parentResult = super.isExistingTransaction(transaction)
+        return parentResult
     }
 
     @Override
     protected Object doSuspend(Object transaction) throws TransactionException {
         if (transaction instanceof MongoTransactionObject) {
+            MongoSessionHolder holder = ((MongoTransactionObject) transaction).mongoSessionHolder
             TransactionSynchronizationManager.unbindResource(getDatastore())
-            return ((MongoTransactionObject) transaction).mongoSessionHolder
+            return holder
         }
         return super.doSuspend(transaction)
     }
@@ -184,6 +196,7 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
     @Override
     protected void doResume(Object transaction, Object suspendedResources) throws TransactionException {
         if (suspendedResources instanceof MongoSessionHolder) {
+            MongoSessionHolder holder = (MongoSessionHolder) suspendedResources
             TransactionSynchronizationManager.bindResource(getDatastore(), suspendedResources)
         } else {
             super.doResume(transaction, suspendedResources)
@@ -241,9 +254,6 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
      * Begin native transaction
      */
     private void doBeginNative(Object transaction, TransactionDefinition definition) {
-        if (log.isDebugEnabled()) {
-            log.debug("doBeginNative: starting native transaction")
-        }
         final MongoTransactionObject txObject = extractMongoTransactionObject(transaction)
         MongoSessionHolder sessionHolder = txObject.getMongoSessionHolder()
 
@@ -252,17 +262,20 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
         boolean isJoiningExisting = (contextSession != null && contextSession.hasActiveTransaction())
         boolean isRequiresNew = (definition.getPropagationBehavior() == TransactionDefinition.PROPAGATION_REQUIRES_NEW)
 
-        // REQUIRES_NEW: suspend the outer transaction
+
+        // REQUIRES_NEW: suspend the outer transaction and force new session creation
         if (isRequiresNew && isJoiningExisting) {
             txObject.suspendedContextSession = contextSession
             MongoNativeTransactionContext.popNativeSession()
             contextSession = null
             isJoiningExisting = false
+            // Spring reuses the same transaction object for REQUIRES_NEW, so it still carries
+            // the outer MongoSessionHolder. We must discard it to create a fresh session.
+            sessionHolder = null
         }
 
         // If no session holder exists, create one (session + ClientSession)
         if (!sessionHolder) {
-            Session session = getDatastore().connect()
             ClientSession clientSession
 
             if (!isRequiresNew && contextSession != null && contextSession.hasActiveTransaction()) {
@@ -273,8 +286,35 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
                 clientSession = mongoClient.startSession()
             }
 
+            // CRITICAL: Push ClientSession to context BEFORE creating the GORM session.
+            // MongoDatastore.createSession() checks MongoNativeTransactionContext.hasNativeSession()
+            // to decide whether to create a MongoNativeCodecSession (which uses ClientSession for ops)
+            // or a regular MongoCodecSession (which queues operations).
+            // If we push AFTER connect(), the wrong session type would be created.
+            if (!isJoiningExisting) {
+                MongoNativeTransactionContext.pushNativeSession(clientSession)
+                txObject.pushedToContext = true
+            } else {
+                txObject.pushedToContext = false
+            }
+
+            // Now create the GORM session - it will see the native session in context
+            // and create a MongoNativeCodecSession that uses ClientSession for all operations
+            Session session = getDatastore().connect()
+
             sessionHolder = new MongoSessionHolder(session, clientSession)
             txObject.setMongoSessionHolder(sessionHolder)
+        } else {
+            // Session holder already exists - just handle context push
+            if (!isJoiningExisting) {
+                ClientSession clientSession = txObject.getClientSession()
+                if (clientSession != null) {
+                    MongoNativeTransactionContext.pushNativeSession(clientSession)
+                }
+                txObject.pushedToContext = true
+            } else {
+                txObject.pushedToContext = false
+            }
         }
 
         final Session session = sessionHolder.getSession()
@@ -282,14 +322,6 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
 
         if (!clientSession) {
             throw new TransactionSystemException("ClientSession not available in transaction object")
-        }
-
-        // Only push to context if not already there (avoid duplicate push when joining programmatic transaction)
-        if (!isJoiningExisting) {
-            MongoNativeTransactionContext.pushNativeSession(clientSession)
-            txObject.pushedToContext = true
-        } else {
-            txObject.pushedToContext = false
         }
 
         final org.grails.datastore.mapping.transactions.Transaction gormTx = session.beginTransaction()
@@ -365,14 +397,19 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
      */
     private void doCommitNative(DefaultTransactionStatus status) {
         final MongoTransactionObject txObject = extractMongoTransactionObject(status.transaction)
-        // If pushedToContext=false, we're joining an outer transaction that will handle commit
-        if (log.isDebugEnabled()) {
-            log.debug("doCommitNative: pushedToContext={}", txObject.pushedToContext)
-        }
+
         // Only commit if we created the transaction (pushedToContext means we own it)
         if (txObject.pushedToContext) {
-            log.debug("Committing native transaction via MongoTransactionObject")
             txObject.commit()  // This checks rollbackOnly flag and calls clientSession.commitTransaction()
+
+            // Clear GORM session cache after commit so subsequent queries see committed data
+            org.grails.datastore.mapping.core.Session gormSession =
+                org.grails.datastore.mapping.core.DatastoreUtils.getSession(getDatastore(), false)
+            if (gormSession != null) {
+                gormSession.clear()
+            }
+        } else {
+            System.out.println(">>> doCommitNative: SKIPPING COMMIT - pushedToContext=false, joining outer transaction")
         }
     }
 
@@ -419,23 +456,20 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
      */
     private void doCleanupNative(MongoTransactionObject transaction) {
         // Only pop from context if we created the session (pushedToContext means we own it)
-        // If joining a programmatic transaction, the programmatic layer owns the session
-        // Note: MongoTransactionObject.commit()/rollback() already closes the ClientSession, so we don't close here
         if (transaction.pushedToContext) {
+            def popped = MongoNativeTransactionContext.getNativeSession()
             MongoNativeTransactionContext.popNativeSession()
         }
 
-        // For REQUIRES_NEW: resume the suspended programmatic transaction
+        // For REQUIRES_NEW: resume the suspended programmatic transaction context
         if (transaction.suspendedContextSession != null) {
             MongoNativeTransactionContext.pushNativeSession(transaction.suspendedContextSession)
-            // Don't unbind the resource - the suspended transaction still needs it
-        } else {
-            // Only unbind if we bound the resource AND there's no suspended transaction to resume
-            // If we're joining a programmatic transaction and didn't bind, leave it for the programmatic layer
-            if (transaction.boundResource) {
-                if (TransactionSynchronizationManager.hasResource(getDatastore())) {
-                    TransactionSynchronizationManager.unbindResource(getDatastore())
-                }
+        }
+
+        // Unbind the resource we bound during doBeginNative.
+        if (transaction.boundResource) {
+            if (TransactionSynchronizationManager.hasResource(getDatastore())) {
+                TransactionSynchronizationManager.unbindResource(getDatastore())
             }
         }
     }

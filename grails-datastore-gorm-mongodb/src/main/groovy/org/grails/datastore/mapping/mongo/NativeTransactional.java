@@ -1,25 +1,27 @@
 package org.grails.datastore.mapping.mongo;
 
 import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 import java.lang.annotation.*;
 
 /**
  * Declarative annotation for MongoDB native transactions.
  *
- * <p>Similar to Spring's {@link Transactional @Transactional}, but specifically
+ * <p>Similar to Spring's @Transactional, but specifically
  * uses MongoDB ClientSession with multi-document ACID transactions.</p>
  *
- * <p>Uses @Transactional as a meta-annotation to ensure Spring creates transaction proxies.
- * A custom TransactionAttributeSource (NativeTransactionalAttributeSource) with higher
- * priority intercepts these annotations and returns NativeTransactionAttribute instances
- * to enable native MongoDB transaction handling.</p>
+ * <p>This annotation works through MongoNativeTransactionAopConfiguration which registers
+ * a custom TransactionAttributeSource (NativeTransactionalAttributeSource) with highest
+ * priority. This attribute source intercepts @NativeTransactional annotations and returns
+ * NativeTransactionAttribute instances to enable native MongoDB transaction handling.</p>
+ *
+ * <p>Unlike Spring's @Transactional, this annotation does NOT use @Transactional as a
+ * meta-annotation, which allows it to work without @EnableTransactionManagement and
+ * prevents conflicts with GORM event listeners that could cause infinite recursion.</p>
  */
 @Target({ElementType.TYPE, ElementType.METHOD})
 @Retention(RetentionPolicy.RUNTIME)
 @Inherited
 @Documented
-@Transactional  // Meta-annotation - ensures Spring creates transaction proxies
 public @interface NativeTransactional {
 
     /**

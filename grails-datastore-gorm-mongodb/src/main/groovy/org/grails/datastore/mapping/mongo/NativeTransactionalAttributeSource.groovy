@@ -49,9 +49,7 @@ class NativeTransactionalAttributeSource implements TransactionAttributeSource, 
         }
         TransactionAttribute txAttr = buildTransactionAttribute(annotation)
         attributeCache.put(cacheKey, txAttr)
-        if (log.isDebugEnabled()) {
-            log.debug("Found @NativeTransactional on {}.{}", targetClass?.simpleName, method.name)
-        }
+        log.warn("NATIVE TX FOUND: {}.{} - propagation={}", targetClass?.simpleName, method.name, txAttr.getPropagationBehavior())
         return txAttr
     }
 
@@ -82,6 +80,11 @@ class NativeTransactionalAttributeSource implements TransactionAttributeSource, 
         NativeTransactionAttribute txAttr = new NativeTransactionAttribute()
         txAttr.setPropagationBehavior(annotation.propagation().value())
         txAttr.setTimeout(annotation.timeout())
+        // Set a label to identify native transactions even when Spring's TransactionInterceptor
+        // wraps our attribute in a DelegatingTransactionAttribute.
+        // DelegatingTransactionAttribute delegates getLabels() to the wrapped attribute.
+        // Labels are NOT used for bean resolution (unlike qualifier), making them safe as markers.
+        txAttr.setLabels(Collections.singleton(NativeTransactionAttribute.NATIVE_TX_NAME_PREFIX))
         List<RollbackRuleAttribute> rollbackRules = new ArrayList<>()
         for (Class<?> rbRule : annotation.rollbackFor()) {
             rollbackRules.add(new RollbackRuleAttribute(rbRule))

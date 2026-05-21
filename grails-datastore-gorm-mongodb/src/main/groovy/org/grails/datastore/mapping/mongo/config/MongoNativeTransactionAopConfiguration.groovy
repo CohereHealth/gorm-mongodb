@@ -3,6 +3,7 @@ package org.grails.datastore.mapping.mongo.config
 import groovy.transform.CompileStatic
 import org.grails.datastore.mapping.mongo.MongoDatastoreTransactionManager
 import org.grails.datastore.mapping.mongo.NativeTransactionalAttributeSource
+import org.springframework.aop.framework.autoproxy.InfrastructureAdvisorAutoProxyCreator
 import org.springframework.beans.factory.config.BeanDefinition
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -24,12 +25,26 @@ import org.springframework.transaction.interceptor.TransactionInterceptor
  *   <li>NativeTransactionalAttributeSource - Detects @NativeTransactional annotations</li>
  *   <li>TransactionInterceptor - Intercepts method calls and manages transactions</li>
  *   <li>BeanFactoryTransactionAttributeSourceAdvisor - Wires the interceptor into Spring AOP</li>
+ *   <li>InfrastructureAdvisorAutoProxyCreator - Creates proxies for infrastructure advisors</li>
  * </ul>
  */
 @CompileStatic
 @Configuration
 @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
 class MongoNativeTransactionAopConfiguration {
+
+    /**
+     * Registers the InfrastructureAdvisorAutoProxyCreator to enable automatic proxy creation
+     * for infrastructure advisors (like our transaction advisor).
+     *
+     * This is necessary because without @EnableTransactionManagement, Spring won't automatically
+     * create proxies for @NativeTransactional methods.
+     */
+    @Bean(name = "org.springframework.aop.config.internalAutoProxyCreator")
+    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+    static InfrastructureAdvisorAutoProxyCreator infrastructureAdvisorAutoProxyCreator() {
+        return new InfrastructureAdvisorAutoProxyCreator()
+    }
 
     /**
      * Creates the custom TransactionAttributeSource that detects @NativeTransactional annotations

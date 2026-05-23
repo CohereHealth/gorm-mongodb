@@ -2,7 +2,6 @@ package org.grails.datastore.mapping.mongo
 
 import grails.gorm.annotation.Entity
 import grails.gorm.tests.GormDatastoreSpec
-import org.springframework.transaction.annotation.Transactional
 
 class MongoGlobalNativeTransactionSpec extends GormDatastoreSpec {
 
@@ -10,7 +9,7 @@ class MongoGlobalNativeTransactionSpec extends GormDatastoreSpec {
     List getDomainClasses() {
         [Order]
     }
-    
+
     @Override
     Map getConfiguration() {
         [
@@ -18,34 +17,34 @@ class MongoGlobalNativeTransactionSpec extends GormDatastoreSpec {
         ]
     }
 
-    @Transactional
-    def "test global native transactions"() {
-        when: "using regular GORM methods with global native transactions enabled"
-        new Order(number: "ORD-001").save(flush: true)
-        def inNative = Order.isInNativeTransaction()
-        
+    def "test withNativeTransaction commits with global config enabled"() {
+        when: "using withNativeTransaction with global native transactions enabled"
+        boolean inNative = false
+        Order.withNativeTransaction {
+            new Order(number: "ORD-001").save(flush: true)
+            inNative = Order.isInNativeTransaction()
+        }
+
         then:
         inNative == true
         Order.count() == 1
-        
+    }
+
+    def "test withNativeTransaction rollback with global config enabled"() {
         when: "exception causes rollback"
-        throw new RuntimeException("Force rollback")
-        
+        Order.withNativeTransaction {
+            new Order(number: "ORD-002").save(flush: true)
+            throw new RuntimeException("Force rollback")
+        }
+
         then:
         thrown(RuntimeException)
-        Order.count() == 0 // Should be rolled back
+        Order.count() == 0
     }
-    
-    def "test withNativeTransaction still works with global config"() {
-        when: "using withNativeTransaction with global native transactions"
-        def result = Order.withNativeTransaction { session ->
-            new Order(number: "ORD-002").save(flush: true)
-            return Order.isInNativeTransaction()
-        }
-        
-        then:
-        result == true
-        Order.count() == 1
+
+    def "test isInNativeTransaction is false outside transaction"() {
+        expect:
+        !Order.isInNativeTransaction()
     }
 }
 

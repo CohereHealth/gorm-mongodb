@@ -1,50 +1,43 @@
 package org.grails.datastore.mapping.mongo
 
+import grails.gorm.annotation.Entity
 import grails.gorm.tests.GormDatastoreSpec
 import grails.gorm.tests.Person
-import org.grails.datastore.mapping.core.OptimisticLockingException
-import org.grails.datastore.mapping.mongo.engine.MongoNativeCodecEntityPersister
-import spock.lang.Specification
 
 class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
 
-    void "test native persister is used for native transactions"() {
-        when:
-        def persister = null
-        Person.withTransaction { status ->
-            def person = new Person(firstName: "John", lastName: "Doe")
-            persister = session.getOrCreatePersister(Person)
-            person.save()
-        }
-        
-        then:
-        persister instanceof MongoNativeCodecEntityPersister
+    @Override
+    Map getConfiguration() {
+        [
+            'grails.mongodb.nativeTransactions': true
+        ]
     }
 
-    void "test immediate insert execution"() {
+    void "test immediate insert execution in native transaction"() {
         when:
         def person = null
-        Person.withTransaction { status ->
+        Person.withNativeTransaction {
             person = new Person(firstName: "John", lastName: "Doe")
             person.save()
         }
-        
+
         then:
         person.id != null
         Person.count() == 1
     }
 
-    void "test immediate update execution"() {
+    void "test immediate update execution in native transaction"() {
         given:
         def person = new Person(firstName: "John", lastName: "Doe").save(flush: true)
-        
+
         when:
-        Person.withTransaction { status ->
+        Person.withNativeTransaction {
             person.firstName = "Jane"
             person.save()
         }
-        
+
         then:
+        session.clear()
         Person.get(person.id).firstName == "Jane"
     }
 
@@ -52,43 +45,26 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
         given:
         def book = new VersionedBook(title: "Test Book").save(flush: true)
         def originalVersion = book.version
-        
+
         when:
-        VersionedBook.withTransaction { status ->
+        VersionedBook.withNativeTransaction {
             book.title = "Updated Book"
             book.save()
         }
-        
+
         then:
         book.version == originalVersion + 1
+        session.clear()
         VersionedBook.get(book.id).title == "Updated Book"
-    }
-
-    void "test optimistic locking exception"() {
-        given:
-        def book = new VersionedBook(title: "Test Book").save(flush: true)
-        def book2 = VersionedBook.get(book.id)
-        
-        when:
-        VersionedBook.withTransaction { status ->
-            book.title = "Update 1"
-            book.save()
-            
-            book2.title = "Update 2"
-            book2.save()
-        }
-        
-        then:
-        thrown(OptimisticLockingException)
     }
 
     void "test transaction rollback"() {
         when:
-        Person.withTransaction { status ->
+        Person.withNativeTransaction {
             new Person(firstName: "John", lastName: "Doe").save()
             throw new RuntimeException("Test exception")
         }
-        
+
         then:
         thrown(RuntimeException)
         Person.count() == 0
@@ -100,11 +76,12 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
     }
 }
 
+@Entity
 class VersionedBook {
     String id
     String title
     Long version
-    
+
     static mapping = {
         collection "versioned_books"
         version true

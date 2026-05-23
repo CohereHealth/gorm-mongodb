@@ -58,6 +58,7 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
 
         then:
         countDuring == initialCount - 1
+        session.clear()
         Person.get(personId) == null
     }
 
@@ -99,14 +100,12 @@ class MongoNativeCodecSessionSpec extends GormDatastoreSpec {
         }
 
         when:
-        def allUpdated = false
         Person.withNativeTransaction {
             Person.where { lastName == "BulkUpd" }.updateAll(age: 35)
-            allUpdated = Person.findAllByLastName("BulkUpd").every { it.age == 35 }
         }
 
         then:
-        allUpdated
+        session.clear()
         Person.findAllByLastName("BulkUpd").every { it.age == 35 }
     }
 

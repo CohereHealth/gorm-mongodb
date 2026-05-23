@@ -58,6 +58,7 @@ class MongoNativeCodecEntityPersisterSpec extends GormDatastoreSpec {
 
         then:
         countDuring == initialCount - 1
+        session.clear()
         Person.get(personId) == null
     }
 

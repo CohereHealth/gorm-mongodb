@@ -46,7 +46,7 @@ class MongoBothTransactionModesSpec extends GormDatastoreSpec {
         }
         
         then:
-        Product.count() == 4 // 2 from previous test + 2 new
+        Product.count() == 2
     }
 }
 

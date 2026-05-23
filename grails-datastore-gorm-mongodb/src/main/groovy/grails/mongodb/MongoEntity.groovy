@@ -304,6 +304,10 @@ trait MongoEntity<D> implements GormEntity<D>, DynamicAttributes {
         (T) (((MongoNativeStaticApi) currentGormStaticApi()).withNewNativeTransaction callable)
     }
 
+    static boolean isInNativeTransaction() {
+        ((MongoNativeStaticApi) currentGormStaticApi()).isInNativeTransaction()
+    }
+
     private static MongoStaticApi currentMongoStaticApi() {
         (MongoStaticApi)GormEnhancer.findStaticApi(this)
     }

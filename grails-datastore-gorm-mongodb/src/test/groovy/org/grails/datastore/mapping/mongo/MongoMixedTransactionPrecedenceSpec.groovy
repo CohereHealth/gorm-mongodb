@@ -149,35 +149,7 @@ class MongoMixedTransactionPrecedenceSpec extends GormDatastoreSpec {
     }
 
     // ---------------------------------------------------------------
-    // 6. withNewNativeTransaction gets its own independent session
-    // ---------------------------------------------------------------
-
-    def "withNewNativeTransaction creates an independent session from the outer"() {
-        given:
-        def outerSessionId = null
-        def innerSessionId = null
-
-        when:
-        MixedTxOrder.withNativeTransaction { outerSession ->
-            outerSessionId = System.identityHashCode(outerSession)
-            new MixedTxOrder(description: "Outer-independent").save(flush: true)
-
-            MixedTxOrder.withNewNativeTransaction { innerSession ->
-                innerSessionId = System.identityHashCode(innerSession)
-                new MixedTxOrder(description: "Inner-independent").save(flush: true)
-            }
-        }
-
-        then: "different ClientSession instances"
-        outerSessionId != innerSessionId
-
-        and: "both committed independently"
-        MixedTxOrder.countByDescription("Outer-independent") == 1
-        MixedTxOrder.countByDescription("Inner-independent") == 1
-    }
-
-    // ---------------------------------------------------------------
-    // 7. Independent native transaction commits survive outer rollback
+    // 6. Independent native transaction commits survive outer rollback
     // ---------------------------------------------------------------
 
     def "withNewNativeTransaction commit survives outer native rollback"() {

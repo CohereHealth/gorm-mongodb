@@ -1,5 +1,6 @@
 package org.grails.datastore.gorm.mongo.support
 
+import grails.persistence.support.PersistenceContextInterceptor
 import groovy.transform.CompileStatic
 import groovy.util.logging.Slf4j
 import org.grails.datastore.gorm.support.AbstractDatastorePersistenceContextInterceptor
@@ -14,7 +15,7 @@ import javax.persistence.FlushModeType
  */
 @Slf4j
 @CompileStatic
-class MongoDatastorePersistenceContextInterceptor extends AbstractDatastorePersistenceContextInterceptor {
+class MongoDatastorePersistenceContextInterceptor extends AbstractDatastorePersistenceContextInterceptor implements PersistenceContextInterceptor {
 
     MongoDatastorePersistenceContextInterceptor(MongoDatastore datastore) {
         super(datastore)

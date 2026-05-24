@@ -22,6 +22,7 @@ class MongoTransactionObject implements Transaction<ClientSession> {
     // Annotation support: track transaction ownership for cleanup
     boolean pushedToContext = false  // Did we push ClientSession to thread-local context?
     boolean boundResource = false     // Did we bind SessionHolder to Spring?
+    boolean newSessionHolder = false  // Did we create a new session for this transaction?
     ClientSession suspendedContextSession = null  // For REQUIRES_NEW: suspended outer session
 
     MongoTransactionObject(MongoSessionHolder mongoSessionHolder) {

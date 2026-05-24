@@ -81,10 +81,9 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
         }
 
         if (existingResource != null) {
-            // Regular (non-native) transaction in progress
+            // Regular (non-native) transaction in progress - wrap in MongoSessionHolder for consistency
             org.grails.datastore.mapping.transactions.SessionHolder holder =
                 (org.grails.datastore.mapping.transactions.SessionHolder) existingResource
-            // Wrap the regular SessionHolder in a MongoSessionHolder for consistency
             MongoSessionHolder mongoHolder = new MongoSessionHolder(holder.session, null)
             return new MongoTransactionObject(mongoHolder)
         }
@@ -366,6 +365,7 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
 
     /**
      * Begin regular (non-native) transaction.
+     * Mirrors the behavior of {@link DatastoreTransactionManager#doBegin}.
      */
     private void doBeginRegular(Object transaction, TransactionDefinition definition) {
         final MongoTransactionObject txObject = extractMongoTransactionObject(transaction)
@@ -409,7 +409,7 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
                 gormSession.clear()
             }
         } else {
-            System.out.println(">>> doCommitNative: SKIPPING COMMIT - pushedToContext=false, joining outer transaction")
+            log.debug("doCommitNative: SKIPPING COMMIT - pushedToContext=false, joining outer transaction")
         }
     }
 
@@ -475,7 +475,8 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
     }
 
     /**
-     * Cleanup regular transaction resources
+     * Cleanup regular transaction resources.
+     * Only unbinds the resource if we bound it during doBeginRegular.
      */
     private void doCleanupRegular(MongoTransactionObject transaction) {
         // Only unbind if we bound the resource

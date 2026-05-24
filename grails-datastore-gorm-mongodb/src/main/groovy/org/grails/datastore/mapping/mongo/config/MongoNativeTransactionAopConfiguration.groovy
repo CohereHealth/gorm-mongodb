@@ -1,9 +1,7 @@
 package org.grails.datastore.mapping.mongo.config
 
 import groovy.transform.CompileStatic
-import org.grails.datastore.mapping.mongo.MongoDatastoreTransactionManager
 import org.grails.datastore.mapping.mongo.NativeTransactionalAttributeSource
-import org.springframework.aop.framework.autoproxy.InfrastructureAdvisorAutoProxyCreator
 import org.springframework.beans.factory.config.BeanDefinition
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -25,8 +23,11 @@ import org.springframework.transaction.interceptor.TransactionInterceptor
  *   <li>NativeTransactionalAttributeSource - Detects @NativeTransactional annotations</li>
  *   <li>TransactionInterceptor - Intercepts method calls and manages transactions</li>
  *   <li>BeanFactoryTransactionAttributeSourceAdvisor - Wires the interceptor into Spring AOP</li>
- *   <li>InfrastructureAdvisorAutoProxyCreator - Creates proxies for infrastructure advisors</li>
  * </ul>
+ *
+ * <p>Note: This configuration does NOT register an InfrastructureAdvisorAutoProxyCreator.
+ * Grails/Spring Boot already provides one via @EnableTransactionManagement auto-configuration.
+ * Registering our own would override/conflict with the existing proxy creator.</p>
  */
 @CompileStatic
 @Configuration
@@ -34,21 +35,8 @@ import org.springframework.transaction.interceptor.TransactionInterceptor
 class MongoNativeTransactionAopConfiguration {
 
     /**
-     * Registers the InfrastructureAdvisorAutoProxyCreator to enable automatic proxy creation
-     * for infrastructure advisors (like our transaction advisor).
-     *
-     * This is necessary because without @EnableTransactionManagement, Spring won't automatically
-     * create proxies for @NativeTransactional methods.
-     */
-    @Bean(name = "org.springframework.aop.config.internalAutoProxyCreator")
-    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
-    static InfrastructureAdvisorAutoProxyCreator infrastructureAdvisorAutoProxyCreator() {
-        return new InfrastructureAdvisorAutoProxyCreator()
-    }
-
-    /**
      * Creates the custom TransactionAttributeSource that detects @NativeTransactional annotations
-     * and marks them with the "nativeTransaction" qualifier.
+     * and returns NativeTransactionAttribute instances with labels for identification.
      */
     @Bean(name = "nativeTransactionalAttributeSource")
     @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
@@ -61,8 +49,8 @@ class MongoNativeTransactionAopConfiguration {
      * @NativeTransactional methods and delegate to the transaction manager.
      *
      * IMPORTANT: The interceptor is configured to use the primary transaction manager
-     * directly. The "nativeTransaction" qualifier in TransactionAttribute is used ONLY
-     * by MongoDatastoreTransactionManager.isNativeTransactionalDefinition() to detect
+     * directly. The label in NativeTransactionAttribute is used ONLY by
+     * MongoDatastoreTransactionManager.isNativeTransactionalDefinition() to detect
      * @NativeTransactional annotations, not for bean resolution.
      */
     @Bean(name = "nativeTransactionInterceptor")
@@ -95,10 +83,10 @@ class MongoNativeTransactionAopConfiguration {
         advisor.setAdvice(nativeTransactionInterceptor)
         advisor.setTransactionAttributeSource(attributeSource)
 
-        // Highest priority to ensure @NativeTransactional is detected before any other
-        // transaction advisors. In Spring, LOWER values = HIGHER priority.
-        // Use Ordered.HIGHEST_PRECEDENCE to ensure this runs first.
-        advisor.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE)
+        // Lower priority than default @Transactional advisor (which is at LOWEST_PRECEDENCE).
+        // This ensures @NativeTransactional runs after regular @Transactional detection,
+        // avoiding interference with standard Spring transaction proxies.
+        advisor.setOrder(Ordered.LOWEST_PRECEDENCE - 1)
 
         return advisor
     }

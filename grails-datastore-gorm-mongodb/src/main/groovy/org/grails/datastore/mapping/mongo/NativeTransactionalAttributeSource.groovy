@@ -49,7 +49,9 @@ class NativeTransactionalAttributeSource implements TransactionAttributeSource, 
         }
         TransactionAttribute txAttr = buildTransactionAttribute(annotation)
         attributeCache.put(cacheKey, txAttr)
-        log.warn("NATIVE TX FOUND: {}.{} - propagation={}", targetClass?.simpleName, method.name, txAttr.getPropagationBehavior())
+        if (log.isDebugEnabled()) {
+            log.debug("Found @NativeTransactional on {}.{}", targetClass?.simpleName, method.name)
+        }
         return txAttr
     }
 

@@ -117,8 +117,11 @@ class MongoDbDataStoreSpringInitializer extends AbstractDatastoreInitializer {
 
             mongoTransactionManager(mongoDatastore:"getTransactionManager")
             mongoAutoTimestampEventListener(mongoDatastore:"getAutoTimestampEventListener")
-            mongoPersistenceInterceptor(getPersistenceInterceptorClass(), ref("mongoDatastore"))
-            mongoPersistenceContextInterceptorAggregator(PersistenceContextInterceptorAggregator)
+
+            if (!secondaryDatastore) {
+                mongoPersistenceInterceptor(getPersistenceInterceptorClass(), ref("mongoDatastore"))
+                mongoPersistenceContextInterceptorAggregator(PersistenceContextInterceptorAggregator)
+            }
 
             // Register @NativeTransactional annotation support
             mongoNativeTransactionAopConfiguration(MongoNativeTransactionAopConfiguration)

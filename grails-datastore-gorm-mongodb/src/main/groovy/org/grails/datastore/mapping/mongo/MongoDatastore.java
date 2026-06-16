@@ -1120,6 +1120,7 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
      */
     public <T> T withNativeTransaction(Closure<T> callable) {
         if (MongoNativeTransactionContext.hasNativeSession()) {
+            // Join existing native transaction
             com.mongodb.client.ClientSession existing = MongoNativeTransactionContext.getNativeSession();
             try {
                 return callable.call(existing);
@@ -1136,6 +1137,7 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
             }
         }
 
+        // Start new native transaction
         com.mongodb.client.ClientSession session = null;
         try {
             session = mongo.startSession();
@@ -1144,6 +1146,14 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
 
             T result = callable.call(session);
             session.commitTransaction();
+
+            // Clear GORM session cache after commit so subsequent queries see committed data
+            org.grails.datastore.mapping.core.Session gormSession =
+                org.grails.datastore.mapping.core.DatastoreUtils.getSession(this, false);
+            if (gormSession != null) {
+                gormSession.clear();
+            }
+
             return result;
         } catch (Exception e) {
             if (session != null && session.hasActiveTransaction()) {
@@ -1172,6 +1182,14 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
      * @return The result of the closure execution
      */
     public <T> T withNewNativeTransaction(Closure<T> callable) {
+        // Check if there's an outer native session before starting the new one
+        com.mongodb.client.ClientSession outerSession = null;
+        boolean hadOuterSession = MongoNativeTransactionContext.hasNativeSession();
+        if (hadOuterSession) {
+            // Temporarily suspend the outer session so the inner transaction runs independently
+            outerSession = MongoNativeTransactionContext.popNativeSession();
+        }
+
         com.mongodb.client.ClientSession session = null;
         try {
             session = mongo.startSession();
@@ -1180,6 +1198,14 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
 
             T result = callable.call(session);
             session.commitTransaction();
+
+            // Clear GORM session cache after commit so subsequent queries see committed data
+            org.grails.datastore.mapping.core.Session gormSession =
+                org.grails.datastore.mapping.core.DatastoreUtils.getSession(this, false);
+            if (gormSession != null) {
+                gormSession.clear();
+            }
+
             return result;
         } catch (Exception e) {
             if (session != null && session.hasActiveTransaction()) {
@@ -1190,6 +1216,10 @@ public class MongoDatastore extends AbstractDatastore implements MappingContext.
             MongoNativeTransactionContext.popNativeSession();
             if (session != null) {
                 session.close();
+            }
+            // Restore the outer session if it existed
+            if (hadOuterSession && outerSession != null) {
+                MongoNativeTransactionContext.pushNativeSession(outerSession);
             }
         }
     }

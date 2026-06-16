@@ -159,7 +159,6 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
     @Override
     protected void doCommit(DefaultTransactionStatus status) throws TransactionException {
         boolean isNative = isNativeTransaction(status)
-        MongoTransactionObject txObj = extractMongoTransactionObject(status.transaction)
         if (isNative) {
             doCommitNative(status)
         } else {
@@ -203,7 +202,6 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
     @Override
     protected void doResume(Object transaction, Object suspendedResources) throws TransactionException {
         if (suspendedResources instanceof MongoSessionHolder) {
-            MongoSessionHolder holder = (MongoSessionHolder) suspendedResources
             TransactionSynchronizationManager.bindResource(getDatastore(), suspendedResources)
         } else {
             super.doResume(transaction, suspendedResources)
@@ -378,24 +376,45 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
         final MongoTransactionObject txObject = extractMongoTransactionObject(transaction)
         MongoSessionHolder sessionHolder = txObject.getMongoSessionHolder()
 
-        // If no session holder exists, create one (session with no ClientSession)
-        if (!sessionHolder) {
-            Session session = getDatastore().connect()
-            sessionHolder = new MongoSessionHolder(session, null)  // null ClientSession = regular transaction
-            txObject.setMongoSessionHolder(sessionHolder)
-        }
+        try {
+            // If no session holder exists, create one (session with no ClientSession)
+            if (!sessionHolder) {
+                Session session = getDatastore().connect()
+                sessionHolder = new MongoSessionHolder(session, null)  // null ClientSession = regular transaction
+                txObject.setMongoSessionHolder(sessionHolder)
+            }
 
-        final Session session = sessionHolder.getSession()
+            final Session session = sessionHolder.getSession()
 
-        // Start regular GORM transaction (not native MongoDB transaction)
-        final org.grails.datastore.mapping.transactions.Transaction gormTx = session.beginTransaction()
-        sessionHolder.setTransaction(gormTx)
+            // Handle read-only transactions
+            if (definition.isReadOnly()) {
+                session.setFlushMode(javax.persistence.FlushModeType.COMMIT)
+            }
 
-        if (!TransactionSynchronizationManager.hasResource(getDatastore())) {
-            TransactionSynchronizationManager.bindResource(getDatastore(), sessionHolder)
-            txObject.boundResource = true
-        } else {
-            txObject.boundResource = false
+            // Start regular GORM transaction (not native MongoDB transaction)
+            final org.grails.datastore.mapping.transactions.Transaction gormTx = session.beginTransaction()
+            sessionHolder.setTransaction(gormTx)
+
+            // Set timeout if specified
+            int timeout = determineTimeout(definition)
+            if (timeout != TransactionDefinition.TIMEOUT_DEFAULT) {
+                gormTx.setTimeout(timeout)
+            }
+
+            if (!TransactionSynchronizationManager.hasResource(getDatastore())) {
+                TransactionSynchronizationManager.bindResource(getDatastore(), sessionHolder)
+                txObject.boundResource = true
+                sessionHolder.setSynchronizedWithTransaction(true)
+            } else {
+                txObject.boundResource = false
+            }
+        } catch (Exception ex) {
+            // Clean up on failure
+            if (sessionHolder != null && sessionHolder.getSession() != null) {
+                org.grails.datastore.mapping.core.DatastoreUtils.closeSession(sessionHolder.getSession())
+            }
+            throw new org.springframework.transaction.CannotCreateTransactionException(
+                "Could not open GORM Session for transaction", ex)
         }
     }
     
@@ -416,7 +435,9 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
                 gormSession.clear()
             }
         } else {
-            System.out.println(">>> doCommitNative: SKIPPING COMMIT - pushedToContext=false, joining outer transaction")
+            if (log.isDebugEnabled()) {
+                log.debug("doCommitNative: SKIPPING COMMIT - pushedToContext=false, joining outer transaction")
+            }
         }
     }
 
@@ -443,7 +464,13 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
         final MongoTransactionObject txObject = extractMongoTransactionObject(status.transaction)
         Transaction tx = txObject.mongoSessionHolder?.transaction
         if (tx) {
-            tx.commit()
+            try {
+                tx.commit()
+            } catch (Exception ex) {
+                throw new TransactionSystemException("Could not commit GORM transaction", ex)
+            }
+        } else if (log.isDebugEnabled()) {
+            log.debug("No transaction to commit in regular transaction path")
         }
     }
 
@@ -454,7 +481,13 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
         final MongoTransactionObject txObject = extractMongoTransactionObject(status.transaction)
         Transaction tx = txObject.mongoSessionHolder?.transaction
         if (tx) {
-            tx.rollback()
+            try {
+                tx.rollback()
+            } catch (Exception ex) {
+                throw new TransactionSystemException("Could not rollback GORM transaction", ex)
+            }
+        } else if (log.isDebugEnabled()) {
+            log.debug("No transaction to rollback in regular transaction path")
         }
     }
 
@@ -464,7 +497,6 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
     private void doCleanupNative(MongoTransactionObject transaction) {
         // Only pop from context if we created the session (pushedToContext means we own it)
         if (transaction.pushedToContext) {
-            def popped = MongoNativeTransactionContext.getNativeSession()
             MongoNativeTransactionContext.popNativeSession()
         }
 
@@ -485,7 +517,16 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
      * Cleanup regular transaction resources
      */
     private void doCleanupRegular(MongoTransactionObject transaction) {
-        // Only unbind if we bound the resource
+        // Close the session if we created it
+        MongoSessionHolder holder = transaction.getMongoSessionHolder()
+        if (holder != null && transaction.boundResource) {
+            Session session = holder.getSession()
+            if (session != null) {
+                org.grails.datastore.mapping.core.DatastoreUtils.closeSession(session)
+            }
+        }
+
+        // Unbind the resource if we bound it
         if (transaction.boundResource) {
             TransactionSynchronizationManager.unbindResourceIfPossible(getDatastore())
         }

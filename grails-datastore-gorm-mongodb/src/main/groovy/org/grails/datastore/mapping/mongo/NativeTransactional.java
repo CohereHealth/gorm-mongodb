@@ -15,13 +15,21 @@ public @interface NativeTransactional {
     /**
      * Transaction propagation behavior.
      * <p>Default is {@link Propagation#REQUIRED}.</p>
+     * <p><strong>Supported values:</strong> Only {@link Propagation#REQUIRED} and
+     * {@link Propagation#REQUIRES_NEW} are currently supported for native MongoDB transactions.
+     * Attempting to use other propagation levels will throw {@code UnsupportedOperationException}
+     * at transaction begin time. For other propagation levels, use standard {@code @Transactional}
+     * instead.</p>
      */
     Propagation propagation() default Propagation.REQUIRED;
 
     /**
      * Timeout for the transaction in seconds.
-     * <p>This timeout is enforced by Spring's transaction infrastructure. If the transaction
-     * takes longer than the specified timeout, Spring will attempt to roll it back.
+     * <p><strong>Note:</strong> The timeout attribute is currently not enforced on native
+     * MongoDB transactions. Spring's transaction infrastructure tracks the timeout, but it
+     * is not applied to the MongoDB ClientSession. Native transactions may run longer than
+     * the specified timeout without automatic rollback. For timeout enforcement, consider
+     * using standard {@code @Transactional} instead.</p>
      */
     int timeout() default -1;
 

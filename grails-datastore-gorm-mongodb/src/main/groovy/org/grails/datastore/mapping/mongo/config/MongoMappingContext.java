@@ -198,13 +198,20 @@ public class MongoMappingContext extends DocumentMappingContext {
      *
      * <p>This override detects when the cached reflector was built from a different entity
      * instance than the one currently passed (stale cache) and forces a rebuild.</p>
+     *
+     * <p><strong>Important:</strong> This clears the entire JVM-wide reflector cache, not just
+     * the stale entry. This is necessary because {@code FieldEntityAccess} does not provide
+     * a way to invalidate individual entries. This method is only called during initialization
+     * when entities are being discovered and registered, so the performance impact is limited
+     * to startup. In production, once entities are fully initialized, this branch should not
+     * be reached.</p>
      */
     @Override
     public org.grails.datastore.mapping.reflect.EntityReflector getEntityReflector(PersistentEntity entity) {
         org.grails.datastore.mapping.reflect.EntityReflector reflector = super.getEntityReflector(entity);
         if (reflector != null && reflector.getPersitentEntity() != entity) {
             // The cached reflector was built from a different (stale) entity instance.
-            // Clear the cache and rebuild from the current entity.
+            // Clear the entire cache (see note above) and rebuild from the current entity.
             org.grails.datastore.mapping.reflect.FieldEntityAccess.clearReflectors();
             reflector = super.getEntityReflector(entity);
         }

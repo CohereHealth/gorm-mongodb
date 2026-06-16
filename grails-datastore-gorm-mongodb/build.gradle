@@ -15,8 +15,8 @@ dependencies {
     compileOnly "org.spockframework:spock-core:$spockVersion"
 
     // @NativeTransactional annotation support
-    implementation "org.springframework:spring-tx:$springVersion"
-    implementation "org.springframework:spring-aop:$springVersion"
+    compileOnly "org.springframework:spring-tx:$springVersion"
+    compileOnly "org.springframework:spring-aop:$springVersion"
     
     testImplementation "org.grails:grails-datastore-gorm-tck:$datastoreVersion"
     testImplementation "org.grails:grails-gorm-testing-support:3.1.2"

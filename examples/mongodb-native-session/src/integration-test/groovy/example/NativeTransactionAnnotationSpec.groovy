@@ -143,6 +143,20 @@ class NativeTransactionAnnotationSpec extends Specification {
         Tag.findByName("rollback-tag") == null
     }
 
+    void "test @NativeTransactional rollbackFor - custom exception DOES rollback"() {
+        given: "initial count"
+        def initialCount = Tag.count()
+
+        when: "calling method with rollbackFor CustomTestException"
+        annotationTestService.createWithRollbackFor("rollback-for-tag", "Should rollback")
+
+        then: "exception thrown and changes rolled back"
+        def e = thrown(CustomTestException)
+        e.message == "Should trigger rollback"
+        Tag.count() == initialCount
+        Tag.findByName("rollback-for-tag") == null
+    }
+
     void "test @NativeTransactional noRollbackFor - custom exception does NOT rollback"() {
         given: "initial count"
         def initialCount = Tag.count()

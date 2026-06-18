@@ -279,8 +279,15 @@ class MongoDatastoreTransactionManager extends DatastoreTransactionManager {
             sessionHolder = null
         }
 
-        // If no session holder exists, create one (session + ClientSession)
-        if (!sessionHolder) {
+        // Create/initialise the native session holder when either:
+        //  - we have no holder yet, OR
+        //  - we are JOINING an active native transaction but the holder handed to us by
+        //    doGetTransaction carries no ClientSession. That happens on a web request where
+        //    OpenSessionInView has already bound a regular (non-native) GORM session: a nested
+        //    @Transactional routed to the native path must still JOIN the outer native
+        //    transaction by adopting its ClientSession, rather than failing below with
+        //    "ClientSession not available in transaction object".
+        if (!sessionHolder || (isJoiningExisting && sessionHolder.getClientSession() == null)) {
             ClientSession clientSession
 
             if (!isRequiresNew && contextSession != null && contextSession.hasActiveTransaction()) {

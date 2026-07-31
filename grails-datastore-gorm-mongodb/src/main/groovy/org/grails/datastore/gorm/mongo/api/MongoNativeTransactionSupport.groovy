@@ -41,6 +41,13 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @CompileStatic
 trait MongoNativeTransactionSupport<D> {
 
+    /** Default number of retries after the first attempt when retry is enabled via opts. */
+    static final int DEFAULT_MAX_RETRIES = 3
+    /** Default base backoff (ms) between retry attempts. */
+    static final long DEFAULT_BASE_BACKOFF_MS = 5L
+    /** Default maximum (capped) backoff (ms) between retry attempts. */
+    static final long DEFAULT_MAX_BACKOFF_MS = 50L
+
     abstract Datastore getDatastore()
     
     /**
@@ -59,7 +66,7 @@ trait MongoNativeTransactionSupport<D> {
             return joinExistingNativeTransaction(callable)
         }
         // No opts => retry disabled (maxRetries = 0): single attempt, historical behaviour.
-        return (D) executeNewNativeTransaction(callable, 0, 5L, 50L)
+        return (D) executeNewNativeTransaction(callable, 0, DEFAULT_BASE_BACKOFF_MS, DEFAULT_MAX_BACKOFF_MS)
     }
 
     /**
@@ -93,9 +100,9 @@ trait MongoNativeTransactionSupport<D> {
             return joinExistingNativeTransaction(callable)
         }
         return (D) executeNewNativeTransaction(callable,
-                optInt(opts, 'maxRetries', 3),
-                optLong(opts, 'baseBackoffMs', 5L),
-                optLong(opts, 'maxBackoffMs', 50L))
+                optInt(opts, 'maxRetries', DEFAULT_MAX_RETRIES),
+                optLong(opts, 'baseBackoffMs', DEFAULT_BASE_BACKOFF_MS),
+                optLong(opts, 'maxBackoffMs', DEFAULT_MAX_BACKOFF_MS))
     }
 
     /**
@@ -104,7 +111,7 @@ trait MongoNativeTransactionSupport<D> {
      * exists; the outer transaction is suspended for the duration.
      */
     D withNewNativeTransaction(Closure callable) {
-        return (D) executeNewNativeTransaction(callable, 0, 5L, 50L)
+        return (D) executeNewNativeTransaction(callable, 0, DEFAULT_BASE_BACKOFF_MS, DEFAULT_MAX_BACKOFF_MS)
     }
 
     /**
@@ -114,9 +121,9 @@ trait MongoNativeTransactionSupport<D> {
      */
     D withNewNativeTransaction(Map opts, Closure callable) {
         return (D) executeNewNativeTransaction(callable,
-                optInt(opts, 'maxRetries', 3),
-                optLong(opts, 'baseBackoffMs', 5L),
-                optLong(opts, 'maxBackoffMs', 50L))
+                optInt(opts, 'maxRetries', DEFAULT_MAX_RETRIES),
+                optLong(opts, 'baseBackoffMs', DEFAULT_BASE_BACKOFF_MS),
+                optLong(opts, 'maxBackoffMs', DEFAULT_MAX_BACKOFF_MS))
     }
 
     /**

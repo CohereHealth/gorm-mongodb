@@ -300,8 +300,16 @@ trait MongoEntity<D> implements GormEntity<D>, DynamicAttributes {
         (T) (((MongoNativeStaticApi) currentGormStaticApi()).withNativeTransaction callable)
     }
 
+    static <T> T withNativeTransaction(Map opts, Closure<T> callable) {
+        (T) (((MongoNativeStaticApi) currentGormStaticApi()).withNativeTransaction(opts, callable))
+    }
+
     static <T> T withNewNativeTransaction(Closure<T> callable) {
         (T) (((MongoNativeStaticApi) currentGormStaticApi()).withNewNativeTransaction callable)
+    }
+
+    static <T> T withNewNativeTransaction(Map opts, Closure<T> callable) {
+        (T) (((MongoNativeStaticApi) currentGormStaticApi()).withNewNativeTransaction(opts, callable))
     }
 
     private static MongoStaticApi currentMongoStaticApi() {

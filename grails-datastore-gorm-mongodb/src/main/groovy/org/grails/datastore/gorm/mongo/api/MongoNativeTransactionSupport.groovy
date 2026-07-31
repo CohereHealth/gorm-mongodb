@@ -44,82 +44,124 @@ trait MongoNativeTransactionSupport<D> {
     abstract Datastore getDatastore()
     
     /**
-     * Executes a closure within a native MongoDB transaction.
-     * Pushes a MongoNativeCodecSession onto the session holder so that
-     * getCurrentSession() returns the native session during the transaction.
+     * Executes a closure within a native MongoDB transaction, WITHOUT retry.
+     *
+     * <p>This no-argument form preserves the historical behaviour exactly: the owning transaction
+     * runs a single attempt; on failure it is aborted and the exception propagates. Retry is
+     * opt-in per call site via {@link #withNativeTransaction(Map, Closure)}.</p>
+     *
+     * <p>Pushes a MongoNativeCodecSession onto the session holder so that getCurrentSession()
+     * returns the native session during the transaction. If a native session is already active the
+     * closure joins it (and, being non-top-level, is never retried).</p>
      */
     D withNativeTransaction(Closure callable) {
         if (nativeSession) {
-            ClientSession existing = currentNativeSession
-            try {
-                return (D) callable.call(existing)
-            } catch (Exception e) {
-                if (existing.hasActiveTransaction()) {
-                    existing.abortTransaction()
-                }
-                def session = DatastoreUtils.getSession(getDatastore(), false)
-                if (session != null) {
-                    session.clear()
-                }
-                throw e
-            }
+            return joinExistingNativeTransaction(callable)
         }
-
-        return (D) executeNewNativeTransactionWithRetry(callable)
+        // No opts => retry disabled (maxRetries = 0): single attempt, historical behaviour.
+        return (D) executeNewNativeTransaction(callable, 0, 5L, 50L)
     }
 
     /**
-     * Executes a closure within a new independent native MongoDB transaction.
-     * Always starts a fresh {@code ClientSession} regardless of whether one already exists
-     * (REQUIRES_NEW semantics). The outer transaction is suspended for the duration.
-     * The inner transaction commits/aborts independently of any outer transaction.
+     * Executes a closure within a native MongoDB transaction with a bounded, jittered retry on
+     * MongoDB {@code TransientTransactionError}s (e.g. {@code WriteConflict}/112,
+     * {@code LockTimeout}/24) — MongoDB's prescribed handling for transient transaction aborts.
      *
-     * <p>Like {@link #withNativeTransaction}, the new transaction is retried on MongoDB
-     * {@code TransientTransactionError}s — see {@link #executeNewNativeTransactionWithRetry}.</p>
+     * <p>Retry is a <strong>top-level</strong> (transaction-owning) concern only. If this call
+     * instead joins an already-active native session, {@code opts} are ignored and a WARN is
+     * logged, because a joiner cannot restart the enclosing transaction.</p>
+     *
+     * <p>Supported {@code opts} keys (all optional): {@code maxRetries} (retries after the first
+     * attempt, default 3; {@code 0} disables), {@code baseBackoffMs} (default 5),
+     * {@code maxBackoffMs} (default 50).</p>
+     *
+     * <p><strong>Caller contract:</strong> because the closure is re-executed on each retry, only
+     * enable retry on clauses whose body is purely transactional MongoDB writes on this datastore
+     * (rolled back on abort, re-applied cleanly on retry — all-or-nothing). Do NOT enable retry on
+     * a clause that performs work the abort does not undo and the retry would repeat: writes to a
+     * different MongoClient/datastore (e.g. the secondary {@code findingstore}), message/event
+     * publishes, external HTTP/notification calls, or an already-committed {@code REQUIRES_NEW}
+     * sub-transaction. Such clauses should use the no-argument {@link #withNativeTransaction(Closure)}.</p>
+     *
+     * <p>Usage: {@code Domain.withNativeTransaction(maxRetries: 3) { ... }}.</p>
+     */
+    D withNativeTransaction(Map opts, Closure callable) {
+        if (nativeSession) {
+            org.slf4j.LoggerFactory.getLogger(getClass()).warn(
+                    "Retry options {} ignored: this withNativeTransaction call joins an existing native transaction; retry applies only to the top-level (owning) transaction.",
+                    opts)
+            return joinExistingNativeTransaction(callable)
+        }
+        return (D) executeNewNativeTransaction(callable,
+                optInt(opts, 'maxRetries', 3),
+                optLong(opts, 'baseBackoffMs', 5L),
+                optLong(opts, 'maxBackoffMs', 50L))
+    }
+
+    /**
+     * Executes a closure within a new independent native MongoDB transaction (REQUIRES_NEW),
+     * WITHOUT retry. Always starts a fresh {@code ClientSession} regardless of whether one already
+     * exists; the outer transaction is suspended for the duration.
      */
     D withNewNativeTransaction(Closure callable) {
-        return (D) executeNewNativeTransactionWithRetry(callable)
+        return (D) executeNewNativeTransaction(callable, 0, 5L, 50L)
     }
 
     /**
-     * Runs {@code callable} in a brand-new native MongoDB transaction, retrying the whole
-     * transaction on MongoDB {@code TransientTransactionError}s (e.g. {@code WriteConflict}/112,
-     * {@code LockTimeout}/24) with bounded, jittered backoff — MongoDB's prescribed handling for
-     * transient transaction aborts. Without this, such aborts surface as hard 500s even though
-     * the driver labels them retryable.
-     *
-     * <p>A fresh {@code ClientSession} + transaction is started per attempt; on a transient
-     * failure the transaction is aborted, the attempt's resources are fully cleaned up, and the
-     * closure is re-executed after a short backoff. Non-transient failures (validation, genuine
-     * optimistic-locking version conflicts, etc.) are rethrown immediately without retry.</p>
-     *
-     * <p>The commit is handled separately: a commit that fails with
-     * {@code UnknownTransactionCommitResult} retries the <em>commit</em> (which is idempotent),
-     * not the whole closure; a commit that fails with {@code TransientTransactionError} restarts
-     * the whole transaction via the outer retry. This mirrors the driver's
-     * {@code withTransaction(TransactionBody)} handling.</p>
-     *
-     * <p><strong>Caller contract:</strong> because the closure is re-executed on each retry, it
-     * must contain only transactional MongoDB writes on this datastore. Those writes are rolled
-     * back on abort and re-applied cleanly on retry (all-or-nothing), so no idempotency handling
-     * is needed for them. Work that the transaction abort does NOT undo — writes to a different
-     * MongoClient/datastore (e.g. the secondary {@code findingstore}), message/event publishes,
-     * external HTTP calls, or an already-committed {@code REQUIRES_NEW} sub-transaction — must not
-     * live inside the closure (or must be deferred until after commit), since retry will repeat it.</p>
-     *
-     * <p>Retry count and backoff are tunable via system properties
-     * {@code gorm.mongodb.nativeTx.maxTransientRetries} (default 3),
-     * {@code gorm.mongodb.nativeTx.retryBaseBackoffMs} (default 5) and
-     * {@code gorm.mongodb.nativeTx.retryMaxBackoffMs} (default 50). Only the transaction-owning
-     * path retries; a closure that joins an existing native session (see
-     * {@link #withNativeTransaction}) is never retried here, because a joiner cannot restart the
-     * enclosing transaction.</p>
+     * {@link #withNewNativeTransaction(Closure)} with opt-in retry — same {@code opts} keys and
+     * caller contract as {@link #withNativeTransaction(Map, Closure)}. This form always owns its
+     * transaction (REQUIRES_NEW), so the opts always take effect.
      */
-    private D executeNewNativeTransactionWithRetry(Closure callable) {
+    D withNewNativeTransaction(Map opts, Closure callable) {
+        return (D) executeNewNativeTransaction(callable,
+                optInt(opts, 'maxRetries', 3),
+                optLong(opts, 'baseBackoffMs', 5L),
+                optLong(opts, 'maxBackoffMs', 50L))
+    }
+
+    /**
+     * Runs {@code callable} inside an already-active native session (join path). Never retried:
+     * a joiner cannot restart the enclosing transaction. On failure the shared transaction is
+     * aborted so subsequent operations see the rollback, and the exception propagates.
+     */
+    private D joinExistingNativeTransaction(Closure callable) {
+        ClientSession existing = currentNativeSession
+        try {
+            return (D) callable.call(existing)
+        } catch (Exception e) {
+            if (existing.hasActiveTransaction()) {
+                existing.abortTransaction()
+            }
+            def session = DatastoreUtils.getSession(getDatastore(), false)
+            if (session != null) {
+                session.clear()
+            }
+            throw e
+        }
+    }
+
+    /**
+     * Runs {@code callable} in a brand-new native MongoDB transaction. When {@code maxRetries > 0}
+     * the whole transaction is retried on {@code TransientTransactionError} (e.g.
+     * {@code WriteConflict}/112, {@code LockTimeout}/24) with bounded, jittered backoff; when
+     * {@code maxRetries <= 0} it runs exactly once (historical, no-retry behaviour). A commit that
+     * fails with {@code UnknownTransactionCommitResult} retries only the (idempotent) commit; a
+     * commit that fails with {@code TransientTransactionError} restarts the whole transaction via
+     * the outer loop. Mirrors the driver's {@code withTransaction(TransactionBody)} handling.
+     *
+     * <p>On a transient failure the transaction is aborted, the attempt's resources are fully
+     * cleaned up, and the closure is re-executed after a short backoff. Non-transient failures
+     * (validation, genuine optimistic-locking version conflicts, etc.) are rethrown immediately.</p>
+     *
+     * <p>Retries are logged at INFO (and eventual success-after-retry at INFO) so they can be
+     * monitored; exhausting the retry budget logs at ERROR before rethrowing.</p>
+     */
+    private D executeNewNativeTransaction(Closure callable, int maxRetries, long baseBackoffMs, long maxBackoffMs) {
         final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(getClass())
         final MongoDatastore mongoDatastore = (MongoDatastore) getDatastore()
         def mongoClient = mongoDatastore.mongoClient
-        final int maxAttempts = maxTransientTransactionRetries() + 1
+        final boolean retryEnabled = maxRetries > 0
+        final int maxAttempts = (retryEnabled ? maxRetries : 0) + 1
 
         int attempt = 0
         while (true) {
@@ -149,7 +191,10 @@ trait MongoNativeTransactionSupport<D> {
                 }
 
                 D result = (D) callable.call(clientSession)
-                commitNativeTransactionWithRetry(clientSession, log)
+                commitNativeTransaction(clientSession, log, retryEnabled, maxRetries, baseBackoffMs, maxBackoffMs)
+                if (attempt > 1) {
+                    log.info("Native transaction succeeded after {} attempt(s) (recovered from a transient conflict).", attempt)
+                }
                 return result
             } catch (Exception e) {
                 failure = e
@@ -183,9 +228,9 @@ trait MongoNativeTransactionSupport<D> {
 
             // Only reached when the attempt failed — a successful attempt returns from inside the try above.
             boolean isTransient = isTransientTransactionError(failure)
-            if (isTransient && attempt < maxAttempts) {
-                long backoffMs = computeRetryBackoffMillis(attempt)
-                log.warn("Native transaction hit TransientTransactionError; retrying attempt {}/{} after {}ms: {}",
+            if (retryEnabled && isTransient && attempt < maxAttempts) {
+                long backoffMs = computeRetryBackoffMillis(attempt, baseBackoffMs, maxBackoffMs)
+                log.info("Native transaction hit TransientTransactionError; retrying attempt {}/{} after {}ms: {}",
                         attempt, maxAttempts, backoffMs, failure.message)
                 try {
                     Thread.sleep(backoffMs)
@@ -196,7 +241,7 @@ trait MongoNativeTransactionSupport<D> {
                 continue
             }
 
-            if (isTransient) {
+            if (retryEnabled && isTransient) {
                 log.error("Native transaction retries exhausted after {} attempts on TransientTransactionError: {}",
                         attempt, failure.message)
             }
@@ -205,14 +250,16 @@ trait MongoNativeTransactionSupport<D> {
     }
 
     /**
-     * Commits the native transaction, retrying <em>only the commit</em> when the driver reports
-     * {@code UnknownTransactionCommitResult} (the commit may or may not have applied; re-issuing
+     * Commits the native transaction. When {@code retryEnabled}, a commit that fails with
+     * {@code UnknownTransactionCommitResult} retries <em>only the commit</em> (re-issuing
      * {@code commitTransaction()} is idempotent per the MongoDB spec). A commit that fails with
      * {@code TransientTransactionError} is rethrown so the caller's outer loop restarts the whole
-     * transaction; any other failure is rethrown immediately.
+     * transaction; any other failure is rethrown immediately. When retry is disabled the commit is
+     * attempted exactly once.
      */
-    private void commitNativeTransactionWithRetry(ClientSession clientSession, org.slf4j.Logger log) {
-        final int maxCommitAttempts = maxTransientTransactionRetries() + 1
+    private void commitNativeTransaction(ClientSession clientSession, org.slf4j.Logger log,
+                                         boolean retryEnabled, int maxRetries, long baseBackoffMs, long maxBackoffMs) {
+        final int maxCommitAttempts = (retryEnabled ? maxRetries : 0) + 1
         int commitAttempt = 0
         while (true) {
             commitAttempt++
@@ -224,10 +271,10 @@ trait MongoNativeTransactionSupport<D> {
                     // Whole-transaction retry is handled by the outer loop.
                     throw e
                 }
-                if (e.hasErrorLabel(MongoException.UNKNOWN_TRANSACTION_COMMIT_RESULT_LABEL)
+                if (retryEnabled && e.hasErrorLabel(MongoException.UNKNOWN_TRANSACTION_COMMIT_RESULT_LABEL)
                         && commitAttempt < maxCommitAttempts) {
-                    long backoffMs = computeRetryBackoffMillis(commitAttempt)
-                    log.warn("Native transaction commit returned UnknownTransactionCommitResult; retrying commit {}/{} after {}ms: {}",
+                    long backoffMs = computeRetryBackoffMillis(commitAttempt, baseBackoffMs, maxBackoffMs)
+                    log.info("Native transaction commit returned UnknownTransactionCommitResult; retrying commit {}/{} after {}ms: {}",
                             commitAttempt, maxCommitAttempts, backoffMs, e.message)
                     try {
                         Thread.sleep(backoffMs)
@@ -264,16 +311,20 @@ trait MongoNativeTransactionSupport<D> {
         return false
     }
 
-    private int maxTransientTransactionRetries() {
-        Integer.getInteger("gorm.mongodb.nativeTx.maxTransientRetries", 3)
+    private int optInt(Map opts, String key, int dflt) {
+        Object v = opts?.get(key)
+        return v == null ? dflt : ((Number) v).intValue()
     }
 
-    private long computeRetryBackoffMillis(int attempt) {
-        long base = Long.getLong("gorm.mongodb.nativeTx.retryBaseBackoffMs", 5L)
-        long cap = Long.getLong("gorm.mongodb.nativeTx.retryMaxBackoffMs", 50L)
-        long exp = base * (1L << Math.min(attempt - 1, 16))
-        long jitter = (long) (Math.random() * base)
-        return Math.min(cap, exp) + jitter
+    private long optLong(Map opts, String key, long dflt) {
+        Object v = opts?.get(key)
+        return v == null ? dflt : ((Number) v).longValue()
+    }
+
+    private long computeRetryBackoffMillis(int attempt, long baseBackoffMs, long maxBackoffMs) {
+        long exp = baseBackoffMs * (1L << Math.min(attempt - 1, 16))
+        long jitter = (long) (Math.random() * baseBackoffMs)
+        return Math.min(maxBackoffMs, exp) + jitter
     }
 
     /**

@@ -10,8 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import spock.lang.Specification
 
 /**
- * End-to-end tests for the native-transaction retry-on-{@code TransientTransactionError} behaviour
- * (KOZA-778).
+ * End-to-end tests for the native-transaction retry-on-{@code TransientTransactionError} behaviour.
  *
  * <p>A real MongoDB {@code WriteConflict} (error 112, {@code TransientTransactionError}) is induced
  * deterministically: a competing {@link ClientSession} holds an <em>uncommitted</em> write intent

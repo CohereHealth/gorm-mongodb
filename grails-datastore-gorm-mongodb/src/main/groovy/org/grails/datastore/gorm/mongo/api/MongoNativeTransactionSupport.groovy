@@ -93,9 +93,19 @@ trait MongoNativeTransactionSupport<D> {
      * closure is re-executed after a short backoff. Non-transient failures (validation, genuine
      * optimistic-locking version conflicts, etc.) are rethrown immediately without retry.</p>
      *
-     * <p><strong>Idempotency requirement:</strong> the closure is re-executed on each retry, so
-     * callers must ensure the work inside is safe to run more than once (no duplicated side
-     * effects such as audit events or non-idempotent external calls).</p>
+     * <p>The commit is handled separately: a commit that fails with
+     * {@code UnknownTransactionCommitResult} retries the <em>commit</em> (which is idempotent),
+     * not the whole closure; a commit that fails with {@code TransientTransactionError} restarts
+     * the whole transaction via the outer retry. This mirrors the driver's
+     * {@code withTransaction(TransactionBody)} handling.</p>
+     *
+     * <p><strong>Caller contract:</strong> because the closure is re-executed on each retry, it
+     * must contain only transactional MongoDB writes on this datastore. Those writes are rolled
+     * back on abort and re-applied cleanly on retry (all-or-nothing), so no idempotency handling
+     * is needed for them. Work that the transaction abort does NOT undo — writes to a different
+     * MongoClient/datastore (e.g. the secondary {@code findingstore}), message/event publishes,
+     * external HTTP calls, or an already-committed {@code REQUIRES_NEW} sub-transaction — must not
+     * live inside the closure (or must be deferred until after commit), since retry will repeat it.</p>
      *
      * <p>Retry count and backoff are tunable via system properties
      * {@code gorm.mongodb.nativeTx.maxTransientRetries} (default 3),
@@ -139,16 +149,22 @@ trait MongoNativeTransactionSupport<D> {
                 }
 
                 D result = (D) callable.call(clientSession)
-                clientSession.commitTransaction()
+                commitNativeTransactionWithRetry(clientSession, log)
                 return result
             } catch (Exception e) {
+                failure = e
                 if (clientSession?.hasActiveTransaction()) {
-                    clientSession.abortTransaction()
+                    try {
+                        clientSession.abortTransaction()
+                    } catch (Exception abortEx) {
+                        // Preserve the original failure for the retry/throw decision below;
+                        // surface the abort problem only in logs.
+                        log.warn("Failed to abort native transaction after error (original error preserved): {}", abortEx.message)
+                    }
                 }
                 if (nativeCodecSession != null) {
                     nativeCodecSession.clear()
                 }
-                failure = e
             } finally {
                 MongoNativeTransactionContext.popNativeSession()
 
@@ -185,6 +201,44 @@ trait MongoNativeTransactionSupport<D> {
                         attempt, failure.message)
             }
             throw failure
+        }
+    }
+
+    /**
+     * Commits the native transaction, retrying <em>only the commit</em> when the driver reports
+     * {@code UnknownTransactionCommitResult} (the commit may or may not have applied; re-issuing
+     * {@code commitTransaction()} is idempotent per the MongoDB spec). A commit that fails with
+     * {@code TransientTransactionError} is rethrown so the caller's outer loop restarts the whole
+     * transaction; any other failure is rethrown immediately.
+     */
+    private void commitNativeTransactionWithRetry(ClientSession clientSession, org.slf4j.Logger log) {
+        final int maxCommitAttempts = maxTransientTransactionRetries() + 1
+        int commitAttempt = 0
+        while (true) {
+            commitAttempt++
+            try {
+                clientSession.commitTransaction()
+                return
+            } catch (MongoException e) {
+                if (e.hasErrorLabel(MongoException.TRANSIENT_TRANSACTION_ERROR_LABEL)) {
+                    // Whole-transaction retry is handled by the outer loop.
+                    throw e
+                }
+                if (e.hasErrorLabel(MongoException.UNKNOWN_TRANSACTION_COMMIT_RESULT_LABEL)
+                        && commitAttempt < maxCommitAttempts) {
+                    long backoffMs = computeRetryBackoffMillis(commitAttempt)
+                    log.warn("Native transaction commit returned UnknownTransactionCommitResult; retrying commit {}/{} after {}ms: {}",
+                            commitAttempt, maxCommitAttempts, backoffMs, e.message)
+                    try {
+                        Thread.sleep(backoffMs)
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt()
+                        throw e
+                    }
+                    continue
+                }
+                throw e
+            }
         }
     }
 

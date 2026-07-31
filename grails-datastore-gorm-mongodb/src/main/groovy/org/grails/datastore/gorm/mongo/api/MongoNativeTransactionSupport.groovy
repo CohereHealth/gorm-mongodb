@@ -41,8 +41,12 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @CompileStatic
 trait MongoNativeTransactionSupport<D> {
 
-    /** Default number of retries after the first attempt when retry is enabled via opts. */
-    static final int DEFAULT_MAX_RETRIES = 3
+    /**
+     * Default retries after the first attempt: {@code 0} = disabled. Retry is off unless a caller
+     * explicitly passes a positive {@code maxRetries} to the opts overload, so both the no-arg
+     * form and an opts map without {@code maxRetries} run a single attempt (historical behaviour).
+     */
+    static final int DEFAULT_MAX_RETRIES = 0
     /** Default base backoff (ms) between retry attempts. */
     static final long DEFAULT_BASE_BACKOFF_MS = 5L
     /** Default maximum (capped) backoff (ms) between retry attempts. */
@@ -79,8 +83,8 @@ trait MongoNativeTransactionSupport<D> {
      * logged, because a joiner cannot restart the enclosing transaction.</p>
      *
      * <p>Supported {@code opts} keys (all optional): {@code maxRetries} (retries after the first
-     * attempt, default 3; {@code 0} disables), {@code baseBackoffMs} (default 5),
-     * {@code maxBackoffMs} (default 50).</p>
+     * attempt; default 0 = disabled — pass a positive value to enable retry), {@code baseBackoffMs}
+     * (default 5), {@code maxBackoffMs} (default 50).</p>
      *
      * <p><strong>Caller contract:</strong> because the closure is re-executed on each retry, only
      * enable retry on clauses whose body is purely transactional MongoDB writes on this datastore

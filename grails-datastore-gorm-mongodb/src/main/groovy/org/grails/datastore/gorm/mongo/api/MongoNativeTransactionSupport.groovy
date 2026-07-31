@@ -1,5 +1,6 @@
 package org.grails.datastore.gorm.mongo.api
 
+import com.mongodb.MongoException
 import com.mongodb.client.ClientSession
 import groovy.transform.CompileStatic
 import org.grails.datastore.mapping.core.DatastoreUtils
@@ -39,7 +40,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  */
 @CompileStatic
 trait MongoNativeTransactionSupport<D> {
-    
+
     abstract Datastore getDatastore()
     
     /**
@@ -63,58 +64,8 @@ trait MongoNativeTransactionSupport<D> {
                 throw e
             }
         }
-        
-        final MongoDatastore mongoDatastore = (MongoDatastore) getDatastore()
-        def mongoClient = mongoDatastore.mongoClient
-        ClientSession clientSession = null
-        MongoNativeCodecSession nativeCodecSession = null
-        SessionHolder holder = null
-        boolean createdHolder = false
 
-        try {
-            clientSession = mongoClient.startSession()
-            clientSession.startTransaction()
-            MongoNativeTransactionContext.pushNativeSession(clientSession)
-
-            // Push a native session onto the holder so getCurrentSession() returns it
-            nativeCodecSession = new MongoNativeCodecSession(mongoDatastore, mongoDatastore.mappingContext, mongoDatastore.applicationEventPublisher, false)
-            holder = (SessionHolder) TransactionSynchronizationManager.getResource(mongoDatastore)
-
-            if (holder == null) {
-                // No existing holder, create one and bind it
-                holder = new SessionHolder(nativeCodecSession)
-                TransactionSynchronizationManager.bindResource(mongoDatastore, holder)
-                createdHolder = true
-            } else {
-                holder.addSession(nativeCodecSession)
-            }
-
-            D result = (D) callable.call(clientSession)
-            clientSession.commitTransaction()
-            return result
-        } catch (Exception e) {
-            if (clientSession?.hasActiveTransaction()) {
-                clientSession.abortTransaction()
-            }
-            if (nativeCodecSession != null) {
-                nativeCodecSession.clear()
-            }
-            throw e
-        } finally {
-            MongoNativeTransactionContext.popNativeSession()
-
-            if (nativeCodecSession != null) {
-                if (createdHolder) {
-                    // We created the holder, so unbind it
-                    TransactionSynchronizationManager.unbindResource(mongoDatastore)
-                } else if (holder != null) {
-                    // Just remove our session from existing holder
-                    holder.removeSession(nativeCodecSession)
-                }
-            }
-
-            clientSession?.close()
-        }
+        return (D) executeNewNativeTransactionWithRetry(callable)
     }
 
     /**
@@ -122,58 +73,153 @@ trait MongoNativeTransactionSupport<D> {
      * Always starts a fresh {@code ClientSession} regardless of whether one already exists
      * (REQUIRES_NEW semantics). The outer transaction is suspended for the duration.
      * The inner transaction commits/aborts independently of any outer transaction.
+     *
+     * <p>Like {@link #withNativeTransaction}, the new transaction is retried on MongoDB
+     * {@code TransientTransactionError}s — see {@link #executeNewNativeTransactionWithRetry}.</p>
      */
     D withNewNativeTransaction(Closure callable) {
+        return (D) executeNewNativeTransactionWithRetry(callable)
+    }
+
+    /**
+     * Runs {@code callable} in a brand-new native MongoDB transaction, retrying the whole
+     * transaction on MongoDB {@code TransientTransactionError}s (e.g. {@code WriteConflict}/112,
+     * {@code LockTimeout}/24) with bounded, jittered backoff — MongoDB's prescribed handling for
+     * transient transaction aborts. Without this, such aborts surface as hard 500s even though
+     * the driver labels them retryable.
+     *
+     * <p>A fresh {@code ClientSession} + transaction is started per attempt; on a transient
+     * failure the transaction is aborted, the attempt's resources are fully cleaned up, and the
+     * closure is re-executed after a short backoff. Non-transient failures (validation, genuine
+     * optimistic-locking version conflicts, etc.) are rethrown immediately without retry.</p>
+     *
+     * <p><strong>Idempotency requirement:</strong> the closure is re-executed on each retry, so
+     * callers must ensure the work inside is safe to run more than once (no duplicated side
+     * effects such as audit events or non-idempotent external calls).</p>
+     *
+     * <p>Retry count and backoff are tunable via system properties
+     * {@code gorm.mongodb.nativeTx.maxTransientRetries} (default 3),
+     * {@code gorm.mongodb.nativeTx.retryBaseBackoffMs} (default 5) and
+     * {@code gorm.mongodb.nativeTx.retryMaxBackoffMs} (default 50). Only the transaction-owning
+     * path retries; a closure that joins an existing native session (see
+     * {@link #withNativeTransaction}) is never retried here, because a joiner cannot restart the
+     * enclosing transaction.</p>
+     */
+    private D executeNewNativeTransactionWithRetry(Closure callable) {
+        final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(getClass())
         final MongoDatastore mongoDatastore = (MongoDatastore) getDatastore()
         def mongoClient = mongoDatastore.mongoClient
-        ClientSession clientSession = null
-        MongoNativeCodecSession nativeCodecSession = null
-        SessionHolder holder = null
-        boolean createdHolder = false
+        final int maxAttempts = maxTransientTransactionRetries() + 1
 
-        try {
-            clientSession = mongoClient.startSession()
-            clientSession.startTransaction()
-            MongoNativeTransactionContext.pushNativeSession(clientSession)
+        int attempt = 0
+        while (true) {
+            attempt++
+            ClientSession clientSession = null
+            MongoNativeCodecSession nativeCodecSession = null
+            SessionHolder holder = null
+            boolean createdHolder = false
+            Exception failure = null
 
-            nativeCodecSession = new MongoNativeCodecSession(mongoDatastore, mongoDatastore.mappingContext, mongoDatastore.applicationEventPublisher, false)
-            holder = (SessionHolder) TransactionSynchronizationManager.getResource(mongoDatastore)
+            try {
+                clientSession = mongoClient.startSession()
+                clientSession.startTransaction()
+                MongoNativeTransactionContext.pushNativeSession(clientSession)
 
-            if (holder == null) {
-                // No existing holder, create one and bind it
-                holder = new SessionHolder(nativeCodecSession)
-                TransactionSynchronizationManager.bindResource(mongoDatastore, holder)
-                createdHolder = true
-            } else {
-                holder.addSession(nativeCodecSession)
-            }
+                // Push a native session onto the holder so getCurrentSession() returns it
+                nativeCodecSession = new MongoNativeCodecSession(mongoDatastore, mongoDatastore.mappingContext, mongoDatastore.applicationEventPublisher, false)
+                holder = (SessionHolder) TransactionSynchronizationManager.getResource(mongoDatastore)
 
-            D result = (D) callable.call(clientSession)
-            clientSession.commitTransaction()
-            return result
-        } catch (Exception e) {
-            if (clientSession?.hasActiveTransaction()) {
-                clientSession.abortTransaction()
-            }
-            if (nativeCodecSession != null) {
-                nativeCodecSession.clear()
-            }
-            throw e
-        } finally {
-            MongoNativeTransactionContext.popNativeSession()
-
-            if (nativeCodecSession != null) {
-                if (createdHolder) {
-                    // We created the holder, so unbind it
-                    TransactionSynchronizationManager.unbindResource(mongoDatastore)
-                } else if (holder != null) {
-                    // Just remove our session from existing holder
-                    holder.removeSession(nativeCodecSession)
+                if (holder == null) {
+                    // No existing holder, create one and bind it
+                    holder = new SessionHolder(nativeCodecSession)
+                    TransactionSynchronizationManager.bindResource(mongoDatastore, holder)
+                    createdHolder = true
+                } else {
+                    holder.addSession(nativeCodecSession)
                 }
+
+                D result = (D) callable.call(clientSession)
+                clientSession.commitTransaction()
+                return result
+            } catch (Exception e) {
+                if (clientSession?.hasActiveTransaction()) {
+                    clientSession.abortTransaction()
+                }
+                if (nativeCodecSession != null) {
+                    nativeCodecSession.clear()
+                }
+                failure = e
+            } finally {
+                MongoNativeTransactionContext.popNativeSession()
+
+                if (nativeCodecSession != null) {
+                    if (createdHolder) {
+                        // We created the holder, so unbind it
+                        TransactionSynchronizationManager.unbindResource(mongoDatastore)
+                    } else if (holder != null) {
+                        // Just remove our session from existing holder
+                        holder.removeSession(nativeCodecSession)
+                    }
+                }
+
+                clientSession?.close()
             }
 
-            clientSession?.close()
+            // Only reached when the attempt failed — a successful attempt returns from inside the try above.
+            boolean isTransient = isTransientTransactionError(failure)
+            if (isTransient && attempt < maxAttempts) {
+                long backoffMs = computeRetryBackoffMillis(attempt)
+                log.warn("Native transaction hit TransientTransactionError; retrying attempt {}/{} after {}ms: {}",
+                        attempt, maxAttempts, backoffMs, failure.message)
+                try {
+                    Thread.sleep(backoffMs)
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt()
+                    throw failure
+                }
+                continue
+            }
+
+            if (isTransient) {
+                log.error("Native transaction retries exhausted after {} attempts on TransientTransactionError: {}",
+                        attempt, failure.message)
+            }
+            throw failure
         }
+    }
+
+    /**
+     * Returns true if {@code t} (or anything in its cause chain) is a MongoDB
+     * {@code TransientTransactionError} — the retryable label the server attaches to
+     * transaction aborts such as {@code WriteConflict} (112) and {@code LockTimeout} (24).
+     * Falls back to a message check so detection survives exception wrapping.
+     */
+    private boolean isTransientTransactionError(Throwable t) {
+        Throwable current = t
+        while (current != null) {
+            if (current instanceof MongoException &&
+                    ((MongoException) current).hasErrorLabel(MongoException.TRANSIENT_TRANSACTION_ERROR_LABEL)) {
+                return true
+            }
+            String msg = current.message
+            if (msg != null && msg.contains(MongoException.TRANSIENT_TRANSACTION_ERROR_LABEL)) {
+                return true
+            }
+            current = current.cause
+        }
+        return false
+    }
+
+    private int maxTransientTransactionRetries() {
+        Integer.getInteger("gorm.mongodb.nativeTx.maxTransientRetries", 3)
+    }
+
+    private long computeRetryBackoffMillis(int attempt) {
+        long base = Long.getLong("gorm.mongodb.nativeTx.retryBaseBackoffMs", 5L)
+        long cap = Long.getLong("gorm.mongodb.nativeTx.retryMaxBackoffMs", 50L)
+        long exp = base * (1L << Math.min(attempt - 1, 16))
+        long jitter = (long) (Math.random() * base)
+        return Math.min(cap, exp) + jitter
     }
 
     /**

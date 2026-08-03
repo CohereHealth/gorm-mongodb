@@ -386,16 +386,32 @@ class MongoNativeCodecEntityPersister extends MongoCodecEntityPersister {
                                MongoCollection collection, EntityAccess entityAccess, ClientSession session) {
         // Build the version query BEFORE encodeUpdate, because encodeUpdate
         // increments the in-memory version via incrementEntityVersion(access).
+        boolean versioned = entity.isVersioned()
+        Object originalVersion = versioned ? entityAccess.getProperty(entity.version.name) : null
         Document query = createVersionedIdQuery(entity, id, entityAccess)
 
         def updateDoc = encodeUpdate(obj, entityAccess)
         if (!updateDoc) return
 
-        def result = session ?
-            collection.updateOne(session, query, updateDoc) :
-            collection.updateOne(query, updateDoc)
+        def result
+        try {
+            result = session ?
+                collection.updateOne(session, query, updateDoc) :
+                collection.updateOne(query, updateDoc)
+        } catch (RuntimeException e) {
+            // The write did not persist (e.g. a transaction WriteConflict/TransientTransactionError). encodeUpdate
+            // already bumped the in-memory version; restore it so a transaction retry re-issues the write with the
+            // persistent version rather than the optimistically-incremented one (which would never match, turning a
+            // retryable transient conflict into a spurious OptimisticLockingException on the next attempt).
+            if (versioned) {
+                entityAccess.setProperty(entity.version.name, originalVersion)
+            }
+            throw e
+        }
 
-        if (entity.isVersioned() && result.matchedCount == 0) {
+        if (versioned && result.matchedCount == 0) {
+            // Genuine version mismatch: the write did not apply, so undo the in-memory increment before signalling.
+            entityAccess.setProperty(entity.version.name, originalVersion)
             if (log.isWarnEnabled()) {
                 log.warn("Optimistic locking failure for {} [id={}]: version mismatch", entity.name, id)
             }

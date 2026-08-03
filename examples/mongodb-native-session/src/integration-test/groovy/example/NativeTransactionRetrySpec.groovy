@@ -104,6 +104,35 @@ class NativeTransactionRetrySpec extends Specification {
         release(competing)
     }
 
+    void "opt-in retry recovers a REUSED pre-fetched instance without re-fetching inside the closure"() {
+        given: "an instance fetched ONCE up front and reused on every attempt (mirrors app closures that persist a managed/detached instance rather than re-reading it)"
+        ObjectId id = seedProvider()
+        Provider prefetched = Provider.withNewSession { Provider.get(id) }
+        Long versionBefore = prefetched.version
+        ClientSession competing = openCompetingWriteIntent(id)
+        int attempts = 0
+
+        when: "the SAME instance is re-saved each attempt; the intent is released at the start of attempt 2"
+        def result = Provider.withNativeTransaction(maxRetries: 5, baseBackoffMs: 10, maxBackoffMs: 40) { session ->
+            attempts++
+            if (attempts >= 2 && competing.hasActiveTransaction()) {
+                competing.abortTransaction()
+            }
+            prefetched.age = 42
+            prefetched.save(failOnError: true)
+            return prefetched
+        }
+
+        then: "attempt 1 conflicted (encodeUpdate had bumped the in-memory version); the abort restored that version so the retry's versioned update matched and committed — without the restore this would fail with OptimisticLockingException on attempt 2"
+        attempts == 2
+        result.age == 42
+        Provider.withNewSession { Provider.get(id).age } == 42
+        Provider.withNewSession { Provider.get(id).version } == versionBefore + 1
+
+        cleanup:
+        release(competing)
+    }
+
     void "opt-in retry gives up after maxRetries and rethrows the conflict"() {
         given: "a competing intent that is never released, so every attempt conflicts"
         ObjectId id = seedProvider()
